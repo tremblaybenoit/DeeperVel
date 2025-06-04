@@ -1,0 +1,209 @@
+# Data loader
+_recursive_: False
+_target_: track.model.data_loader.MuramQSDataModule
+
+# Raw data
+source:
+  # Path to data
+  path: "../data/MURaMQS"
+  type: "directory"
+  # Reader
+  io:
+    # Partial instantiation
+    _partial_: True
+    # Target class
+    _target_: retrieval.data.io.MURaMQSDataset
+    # Path to data
+    path: ${source.path}
+    # Slice type
+    dataset: 'yz'
+
+# Data loader
+loader:
+  # Data loader
+  _recursive_: False
+  _target_: retrieval.model.data_loader.ZarrDataModule
+  # Input data
+  input:
+    # Variables
+    variables:
+      ic: ${data.variables.ic}
+      Bx: ${data.variables.Bx}
+      By: ${data.variables.By}
+      Bz: ${data.variables.Bz}
+      vz: ${data.variables.vz}
+    # Heights
+    slices: [0]
+    # Time steps
+    dt: [0, 1]
+    # Code to read files
+    io: ${data.preparation.statistics.input.data}
+    # Stats
+    stats: ${data.preparation.statistics.output.data.path}
+  # Output data
+  output:
+    # Variables
+    variables:
+      vx: ${data.variables.vx}
+      vy: ${data.variables.vy}
+    # Heights
+    slices: [0]
+    # Time steps
+    dt: [0]
+    # Code to read files
+    io: ${data.preparation.statistics.input.data}
+    # Stats
+    stats: ${data.preparation.statistics.output.data.path}
+  # Stats
+  stats: ${data.preparation.statistics.output.data.path}
+  # Split
+  split:
+    # Fraction of data to use for training
+    train: 0.6
+    # Fraction of data to use for validation
+    valid: 0.2
+    # Fraction of data to use for testing
+    test: 0.2
+    # Batch size when training
+    batch_size: 32
+    # Patches to use for training
+    patches: ${data.preparation.colocate.output.data.path}
+  # Apply geometric augmentation in the x/y plane
+  augmentation:
+    # Partial instantiation
+    _partial_: True
+    # Target class
+    _target_: retrieval.data.transformations.GeometricVectorAugmentation
+
+
+# Preparation steps
+preparation:
+  # Compute statistics
+  statistics:
+    # Input
+    input:
+      # Path
+      data: ${data.source}
+    # Output
+    output:
+      # Values
+      data:
+        # Path
+        path: ${data.source.path}/stats.pkl
+        type: "file"
+  # Training set patches
+  colocate:
+    # Input
+    input:
+      # Path
+      data: ${data.source}
+      # Patches
+      patches:
+        # Number of samples
+        n_samples: 1000
+        # Size of patches
+        size: [48, 48]
+        # Time steps
+        dt_input: ${loader.input.dt}
+        dt_output: ${loader.output.dt}
+    # Output
+    output:
+      # Values
+      data:
+        # Path
+        path: ${data.source.path}/patches.pkl
+        type: "file"
+
+# MHD variables and their transformations
+vars:
+  ic:
+    # Variable(s) to use to compute
+    dependency: ['ic']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.mean_stdev
+  Bx:
+    # Variable(s) to use to compute
+    dependency: ['Bx']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.mean_stdev
+  By:
+    # Variable(s) to use to compute
+    dependency: ['By']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+        # Partial instantiation
+        _partial_: True
+        _target_: retrieval.data.transformations.mean_stdev
+  Bz:
+    # Variable(s) to use to compute
+    dependency: ['Bz']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+        # Partial instantiation
+        _partial_: True
+        _target_: retrieval.data.transformations.mean_stdev
+  vx:
+    # Variable(s) to use to compute
+    dependency: ['vx']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.mean_stdev
+  vy:
+    # Variable(s) to use to compute
+    dependency: ['vy']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.mean_stdev
+  vz:
+    # Variable(s) to use to compute
+    dependency: ['vz']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: retrieval.data.transformations.mean_stdev

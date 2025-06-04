@@ -1,0 +1,4 @@
+defaults:
+  - model_checkpoint
+  # - image_prediction
+  - _self_

@@ -1,0 +1,139 @@
+import yaml
+from omegaconf import OmegaConf
+from hydra import initialize, compose
+from hydra.core.hydra_config import HydraConfig
+import argparse
+
+
+def get_key_in_dict(key, dictionary):
+    """ Get the value of a key in a nested dictionnary.
+
+        Parameters
+        ----------
+        key: str. Key to find in the dictionnary.
+        dictionary: dict. Dictionnary in which to search for the key.
+
+        Returns
+        -------
+        value: Value of the key in the dictionnary.
+    """
+
+    # Check if the key is in the dictionnary
+    if key in dictionary:
+        return dictionary[key]
+
+    # Otherwise, raise an error
+    raise ValueError(f"Key {key} not found in the dictionnary.")
+
+
+def check_key_in_dict(key, dictionary):
+    """ Check if a key is in a dictionnary.
+
+        Parameters
+        ----------
+        key: str. Key to find in the dictionnary.
+        dictionary: dict. Dictionnary in which to search for the key.
+
+        Returns
+        -------
+        bool: True if the key is in the dictionnary, False otherwise.
+    """
+
+    # Check if the key is in the dictionnary
+    return key in dictionary
+
+
+def read_hydra_as_dict(config_path, config_name, version_base=None,
+                       experiment=None, return_hydra_config=True,
+                       verbose=False
+                       ):
+    """ Read complete Hydra configuration and return as dictionnary.
+
+        Parameters
+        ----------
+        config_path: str. Directory containing hydra config file.
+        config_name: str. Config filename.
+        version_base: float; default=None. Version number.
+        experiment: str; default=None. Experiment overriding the hydra config file contents.
+        return_hydra_config: bool; default=True. Whether to extract hydra config.
+        verbose: bool; default=False. Flag to print config file contents.
+
+        Returns
+        -------
+        config_dict: Dictionnary containing all configs.
+    """
+
+    # Manually initialize Hydra and compose the configuration
+    with initialize(version_base=version_base, config_path=config_path):
+
+        if experiment is not None:
+            config = compose(config_name=config_name,
+                             overrides=[f"+experiment={experiment}"],
+                             return_hydra_config=return_hydra_config)
+        else:
+            config = compose(config_name=config_name,
+                             return_hydra_config=return_hydra_config)
+
+        # Manually set missing mandatory values if missing
+        if 'num' not in config.hydra.job:
+            config.hydra.job.num = 1  # Set a default value for hydra.job.num
+        if 'output_dir' not in config.hydra.runtime:
+            config.hydra.runtime.output_dir = config.hydra.run.dir
+
+        # Set hydra config
+        HydraConfig.instance().set_config(config)
+
+        # Resolve paths
+        config_dict = OmegaConf.to_container(config, resolve=True)
+        if check_key_in_dict('hydra', config_dict):
+            del config_dict['hydra']
+
+        # Print contents
+        if verbose:
+            print(OmegaConf.to_yaml(config_dict))
+
+        return config_dict
+
+
+if __name__ == "__main__":
+    """ Read complete Hydra configuration and return as dictionnary.
+
+        Parameters
+        ----------
+        config_path: str. Directory containing hydra config file.
+        config_name: str. Config filename.
+        experiment: str; default=None. Experiment overriding the hydra config file contents.
+        verbose: bool; default=False. Flag to print config file contents.
+
+        Returns
+        -------
+        config_as_dict: Dictionnary containing all configs.
+    """
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-config_path', type=str, default="../config",
+                        help='Path to configuration file containing all model hyperparameters.')
+    parser.add_argument('-config_name', type=str, default="default",
+                        help='Name of the configuration file containing all model hyperparameters.')
+    parser.add_argument('-experiment', type=str, default=None,
+                        help='Name of the experiment that overrides the main hydra configuration.')
+    parser.add_argument('-output', type=str, default=None,
+                        help='Path to configuration file in which to store the hydra config.')
+    parser.add_argument('-verbose', action='store_true',
+                        help='Flag to print the contents of the config file.')
+    args = parser.parse_args()
+
+    # Execute the main function and print the result
+    config_hydra = read_hydra_as_dict(config_path=args.config_path, config_name=args.config_name,
+                                      experiment=args.experiment, verbose=args.verbose)
+
+    # Save to file or print in terminal
+    if args.output is not None:
+
+        # Save to file
+        with open(args.output, 'w') as file:
+            yaml.dump(config_hydra, file)
+
+    else:
+        # Print the result
+        print(yaml.dump(config_hydra))
