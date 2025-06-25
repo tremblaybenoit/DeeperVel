@@ -1,14 +1,18 @@
 import hydra
+import logging
 from omegaconf import DictConfig
-import torch
-from track.train import Tracker
+from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
-torch.set_default_dtype(torch.float64)
+from track.track import Tracker
+
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 
 @hydra.main(version_base=None, config_path=get_config_path(), config_name="default")
 def main(config: DictConfig) -> None:
-    """ Use neural network to track plasma motions (or other physical quantities).
+    """ Test neural network based on a set of configurations.
 
         Parameters
         ----------
@@ -18,12 +22,18 @@ def main(config: DictConfig) -> None:
         -------
         None.
     """
-    # Initialize trainer object and train
-    Tracker(config).track()
+
+    # Initialize the trainer object
+    logger.info("Initializing tracker...")
+    tracker = Tracker(config)
+
+    # Evaluate on the test set
+    logger.info("Testing tracker...")
+    tracker.test()
 
 
 if __name__ == '__main__':
-    """ Use neural network to track plasma motions (or other physical quantities).
+    """ Test neural network to track plasma motions (or other physical quantities).
 
         Parameters
         ----------

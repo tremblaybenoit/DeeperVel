@@ -1,61 +1,99 @@
 # Data loader
 _recursive_: False
-_target_: track.model.data_loader.MuramQSDataModule
+_target_: track.model.data_loader.LazyDataModule
 
-# Raw data
-source:
-  # Path to data
-  path: "../data/MURaMQS"
-  type: "directory"
-  # Reader
-  io:
-    # Partial instantiation
-    _partial_: True
-    # Target class
-    _target_: retrieval.data.io.MURaMQSDataset
+# Datasets
+# Current implementation supports one dataset at a time for input and output
+dataset:
+  yz:
     # Path to data
-    path: ${source.path}
-    # Slice type
-    dataset: 'yz'
+    path: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"
+    type: "directory"
+    # Reader
+    io:
+      # Partial instantiation
+      _partial_: True
+      # Target class
+      _target_: track.data.io.MURaMQSDataset
+      # Path to data
+      path: ${data.dataset.yz.path}
+      # Slice type
+      dataset: 'yz'
+    # Variables
+    variables:
+      I500: ${data.variables.I500}
+      Bx: ${data.variables.Bx}
+      By: ${data.variables.By}
+      Bz: ${data.variables.Bz}
+      vx: ${data.variables.vx}
+      vy: ${data.variables.vy}
+      vz: ${data.variables.vz}
+    # Statistics
+    statistics:
+      # Path to statistics
+      path: ${data.dataset.yz.path}/stats_yz.pkl
+      type: "file"
+  tau:
+    # Path to data
+    path: "../data/MURaMQS"
+    type: "directory"
+    # Reader
+    io:
+      # Partial instantiation
+      _partial_: True
+      # Target class
+      _target_: track.data.io.MURaMQSDataset
+      # Path to data
+      path: ${data.dataset.tau.path}
+      # Slice type
+      dataset: 'tau'
+    # Variables
+    variables:
+      I500: ${data.variables.I500}
+      Bx: ${data.variables.Bx}
+      By: ${data.variables.By}
+      Bz: ${data.variables.Bz}
+      vx: ${data.variables.vx}
+      vy: ${data.variables.vy}
+      vz: ${data.variables.vz}
+    # Statistics
+    statistics:
+      # Path to statistics
+      path: ${data.dataset.tau.path}/stats_tau.pkl
+      type: "file"
 
 # Data loader
 loader:
   # Data loader
   _recursive_: False
-  _target_: retrieval.model.data_loader.ZarrDataModule
+  _target_: track.model.data_loader.ZarrDataModule
   # Input data
   input:
+    # Dataset
+    dataset: ${data.dataset.yz}
     # Variables
     variables:
-      ic: ${data.variables.ic}
-      Bx: ${data.variables.Bx}
-      By: ${data.variables.By}
-      Bz: ${data.variables.Bz}
-      vz: ${data.variables.vz}
+      I500: ${data.dataset.yz.variables.I500}
+      Bx: ${data.dataset.yz.variables.Bx}
+      By: ${data.dataset.yz.variables.By}
+      Bz: ${data.dataset.yz.variables.Bz}
+      vz: ${data.dataset.yz.variables.vz}
     # Heights
     slices: [0]
     # Time steps
     dt: [0, 1]
-    # Code to read files
-    io: ${data.preparation.statistics.input.data}
-    # Stats
-    stats: ${data.preparation.statistics.output.data.path}
   # Output data
   output:
+    # Dataset
+    dataset: ${data.dataset.yz}
     # Variables
     variables:
-      vx: ${data.variables.vx}
-      vy: ${data.variables.vy}
+      vx: ${data.dataset.yz.variables.vx}
+      vy: ${data.dataset.yz.variables.vy}
     # Heights
     slices: [0]
     # Time steps
     dt: [0]
-    # Code to read files
-    io: ${data.preparation.statistics.input.data}
-    # Stats
-    stats: ${data.preparation.statistics.output.data.path}
-  # Stats
-  stats: ${data.preparation.statistics.output.data.path}
   # Split
   split:
     # Fraction of data to use for training
@@ -67,13 +105,13 @@ loader:
     # Batch size when training
     batch_size: 32
     # Patches to use for training
-    patches: ${data.preparation.colocate.output.data.path}
+    patches: ${data.preparation.colocate.output.patches.path}
   # Apply geometric augmentation in the x/y plane
   augmentation:
     # Partial instantiation
     _partial_: True
     # Target class
-    _target_: retrieval.data.transformations.GeometricVectorAugmentation
+    _target_: track.data.transformations.GeometricVectorAugmentation
 
 
 # Preparation steps
@@ -82,53 +120,53 @@ preparation:
   statistics:
     # Input
     input:
-      # Path
-      data: ${data.source}
+      - ${data.dataset.yz}
+      - ${data.dataset.tau}
     # Output
     output:
-      # Values
-      data:
-        # Path
-        path: ${data.source.path}/stats.pkl
-        type: "file"
+      # Data source
+      - ${data.dataset.yz.statistics}
+      - ${data.dataset.tau.statistics}
   # Training set patches
   colocate:
     # Input
     input:
-      # Path
-      data: ${data.source}
+      # Data source
+      data: ${data.loader.input.dataset.io}
       # Patches
       patches:
         # Number of samples
         n_samples: 1000
         # Size of patches
         size: [48, 48]
+        # Timesteps
+        t_range: [0, 300]
         # Time steps
-        dt_input: ${loader.input.dt}
-        dt_output: ${loader.output.dt}
+        dt: ${data.loader.input.dt}
     # Output
     output:
-      # Values
-      data:
+      # Patches
+      patches:
         # Path
-        path: ${data.source.path}/patches.pkl
+        path: ${paths.checkpoint_dir}/patches.pkl
         type: "file"
 
+
 # MHD variables and their transformations
-vars:
-  ic:
+variables:
+  I500:
     # Variable(s) to use to compute
-    dependency: ['ic']
+    dependency: ['I500']
     # Transformations (rotations, sharpening, etc.)
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.mean_stdev
+      _target_: track.data.transformations.mean_stdev
   Bx:
     # Variable(s) to use to compute
     dependency: ['Bx']
@@ -136,12 +174,12 @@ vars:
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.mean_stdev
+      _target_: track.data.transformations.mean_stdev
   By:
     # Variable(s) to use to compute
     dependency: ['By']
@@ -149,12 +187,12 @@ vars:
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
         # Partial instantiation
         _partial_: True
-        _target_: retrieval.data.transformations.mean_stdev
+        _target_: track.data.transformations.mean_stdev
   Bz:
     # Variable(s) to use to compute
     dependency: ['Bz']
@@ -162,12 +200,12 @@ vars:
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
         # Partial instantiation
         _partial_: True
-        _target_: retrieval.data.transformations.mean_stdev
+        _target_: track.data.transformations.mean_stdev
   vx:
     # Variable(s) to use to compute
     dependency: ['vx']
@@ -175,12 +213,12 @@ vars:
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.mean_stdev
+      _target_: track.data.transformations.mean_stdev
   vy:
     # Variable(s) to use to compute
     dependency: ['vy']
@@ -188,12 +226,12 @@ vars:
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.mean_stdev
+      _target_: track.data.transformations.mean_stdev
   vz:
     # Variable(s) to use to compute
     dependency: ['vz']
@@ -201,9 +239,9 @@ vars:
     transform:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.identity
+      _target_: track.data.transformations.identity
     # Scaling (factor multiplication, normalization, standardization, etc.)
     scaling:
       # Partial instantiation
       _partial_: True
-      _target_: retrieval.data.transformations.mean_stdev
+      _target_: track.data.transformations.mean_stdev

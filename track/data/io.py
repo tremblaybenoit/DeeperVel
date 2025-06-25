@@ -85,7 +85,7 @@ class MURaMQSDataset:
         # Baseline for 2D slices
         base_slice = {'nx': 1536, 'ny': 1536, 'nz': 1,
                       'dx': 16., 'dy': 16., 'dz': 16.,
-                      'dstep': 50, 'dt': 10, 'nt': 360,
+                      'dstep': 50, 'dt': 10, 'nt': 361,
                       'iter_start': 0, 'iter_end': 18000}
         # Dataset configurations
         self.datasets = {
@@ -131,6 +131,7 @@ class MURaMQSDataset:
             self.iter_start = int(self.dataset['iter_start'])
             self.iter_end = int(self.dataset['iter_end'])
             self.iter = [i for i in range(self.iter_start, self.iter_end + 1, self.dstep)]
+            self.slices = self.dataset['slices']
 
         # Variables meta data
         self.vars  = {
@@ -227,7 +228,7 @@ class MURaMQSDataset:
             meta = self.vars[var]
 
             # Get filename
-            filename = os.path.join(self.path, meta['file_pattern'].format(iter=iter, slice=slice))
+            filename = meta['file_pattern'].format(iter=iter, slice=slice)
 
             # Compute itemsize
             itemsize = np.dtype(meta['dtype']).itemsize
@@ -266,8 +267,7 @@ class MURaMQSDataset:
         """
 
         # Format variables to lists
-        if isinstance(t, int):
-            t = [t]
+        t = [t] if isinstance(t, int) else t
         iters = [self.iter[i] for i in t]
         if isinstance(vars, str):
             vars = [vars]

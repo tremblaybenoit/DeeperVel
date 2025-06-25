@@ -21,17 +21,14 @@ def broadcast(var1: Union[np.ndarray, torch.Tensor], var2: Union[np.ndarray, tor
     # For Numpy arrays
     if isinstance(var2, np.ndarray):
         var2 = np.reshape(var2, (1,) * (var1.ndim - var2.ndim) + var2.shape)
-
+        # Convert to torch tensor if var1 is a torch tensor
         if isinstance(var1, torch.Tensor):
-            # Convert to a Torch tensor if var1 is a Torch tensor
-            var2 = torch.tensor(var2, dtype=var1.dtype, device=var1.device)
-
+            var2 = torch.from_numpy(var2)
     # For Torch tensors
     elif isinstance(var2, torch.Tensor):
         var2 = var2.view((1,) * (var1.ndim - var2.ndim) + var2.shape)
-
+        # Convert to numpy if var1 is a numpy array
         if isinstance(var1, np.ndarray):
-            # Convert to a Numpy array if var1 is a Numpy array
             var2 = var2.cpu().numpy()
 
     return var2

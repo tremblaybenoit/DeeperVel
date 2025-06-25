@@ -146,9 +146,22 @@ class Tracker:
             state = torch.load(self.checkpoint_path, weights_only=False)
             self.model = state['model']
 
-        # Evaluate on a test set
+        # Evaluate on the test set
         logger.info("Running against test set...")
-        self.trainer.test(self.model, self.data_loader)
+        results = self.trainer.test(self.model, self.data_loader)
+        # Extract results
+        test_results = self.model.test_results
+        # Reshape based on state variables and heights
+        # TODO: Reshape properly
+        predictions = test_results.reshape(test_results.shape[0],
+                                           len(self.data_loader.ds_predict.state_variables), -1)
+
+        # Postprocess predictions
+        for v, variable in enumerate(self.data_loader.ds_predict.state_variables):
+            # Undo transformations and save
+            predictions[:, v, :] = postprocess(predictions[:, v, :],
+                                               self.data_loader.ds_predict.state_variables[variable],
+                                               self.data_loader.ds_predict.state_stats[variable])
 
         # Save test results to file
         logger.info("Saving test results...")
@@ -190,6 +203,7 @@ class Tracker:
         logger.info("Predicting on dataset...")
         predictions = torch.cat(self.trainer.predict(self.model, self.data_loader), dim=0).cpu().numpy()
         # Reshape based on state variables and heights
+        # TODO: Reshape properly
         predictions = predictions.reshape(predictions.shape[0],
                                           len(self.data_loader.ds_predict.state_variables), -1)
 
@@ -221,12 +235,8 @@ def main(config: DictConfig) -> None:
     tracker = Tracker(config)
 
     # Train the model
-    logger.info("Training RACCOONN...")
+    logger.info("Training tracker...")
     tracker.train()
-
-    # Evaluate on the test set
-    logger.info("Testing RACCOONN...")
-    tracker.test()
 
 
 if __name__ == '__main__':

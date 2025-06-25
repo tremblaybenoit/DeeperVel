@@ -6,6 +6,7 @@ import hydra
 from omegaconf import DictConfig
 from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
+from track.data.process import preprocess, postprocess
 
 
 def combine_statistics(stats: List[Dict[str, Union[np.ndarray, torch.Tensor, int]]]) \
@@ -99,52 +100,81 @@ def statistics(data: Union[np.ndarray, torch.Tensor], axis: Union[int, tuple] = 
     }
 
 
-def compute_statistics(config: DictConfig, variables: DictConfig) -> None:
+def compute_statistics(config: DictConfig) -> None:
     """ Compute statistics of a given dataset.
 
         Parameters
         ----------
         config: DictConfig. Configuration file containing data and statistics paths.
-        variables: list of str. Variables to compute statistics on.
 
         Returns
         -------
         pickle file containing data statistics.
     """
 
-    # Reader class
-    io = instantiate(config.input.data.io, _partial_=False)
-    # Load data
-    io.open(config.input.data.path)
-    # Compute statistics per variable
-    stats = {}
+    # Loop over datasets
+    for dataset in config.input:
 
-    # Loop sequentially over variables for memory efficiency
-    for variable, variable_config in variables.items():
         # Reader class
-        io = instantiate(config.input.data.io, _partial_=False)
-        # Apply transformations
-        if hasattr(variable_config, "transform"):
-            data = variable_config.transform(*[io.data[i] for i in variables[v].use])
-        else:
-            # If no transformation is applied, just use the data
-            if len(variables[v].use) == 1:
-                data = io.data[variables[v].use[0]]
-            # Else concatenate the data
-            else:
-                data = np.concatenate([io.data[i] for i in variables[v].use], axis=-1)
+        io = instantiate(dataset.io, _partial_=False)
 
-        # Compute statistics
-        stats[v] = statistics(data, axis=tuple(range(data.ndim - 1)))
+        # Compute statistics per level per variable
+        stats = {}
+
+        # Iterations
+        t = io.t
+        # Levels
+        slices = io.dataset['slices']
+
+        # Loop over levels
+        for s in slices:
+
+            # Loop over variables
+            for variable, variable_config in dataset.variables.items():
+
+                # Read data for the current variable and level
+                data = io.read(t, s, variable)
+
+                # Apply transformations
+                if hasattr(variable_config, "transform"):
+                    data = preprocess(data, variable_config, scaling=False, transform=True)
+                breakpoint()
+
+                # Compute statistics
+                stats[(s, variable)] = statistics(data, axis=tuple(range(data.ndim - 1)))
+                # Clear memory
+                data = None
+
+            # Combine statistics for horizontal variables
+            if "vx" in dataset.variables and "vy" in dataset.variables:
+                stats_negative_x = {
+                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
+                    for key, value in stats[(s, "vx")].items()
+                }
+                stats_negative_y = {
+                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
+                    for key, value in stats[(s, "vy")].items()
+                }
+                stats[(s, "vx")] = stats[(s, "vy")] = combine_statistics([stats[(s, "vx")], stats[(s, "vy")],
+                                                                          stats_negative_x, stats_negative_y])
+            if "Bx" in dataset.variables and "By" in dataset.variables:
+                stats_negative_x = {
+                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
+                    for key, value in stats[(s, "Bx")].items()
+                }
+                stats_negative_y = {
+                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
+                    for key, value in stats[(s, "By")].items()
+                }
+                stats[(s, "Bx")] = stats[(s, "By")] = combine_statistics([stats[(s, "Bx")], stats[(s, "By")],
+                                                                          stats_negative_x, stats_negative_y])
+
+        # Save statistics to a file
+        with open(dataset.statistics.path, 'wb') as file:
+            # noinspection PyTypeChecker
+            pickle.dump(stats, file)
         # Clear memory
-        data = None
-
-    # Save statistics to a file
-    with open(config.output.data.path, 'wb') as file:
-        # noinspection PyTypeChecker
-        pickle.dump(stats, file)
-    # Clear memory
-    io = None
+        io = None
 
     return
 
@@ -168,7 +198,7 @@ def main(config: DictConfig) -> None:
     # If statistics is part of the preparation steps:
     if hasattr(data_config.preparation, "statistics"):
         # Compute statistics
-        compute_statistics(data_config, variables=data_config.variables)
+        compute_statistics(data_config.preparation.statistics)
 
     return
 

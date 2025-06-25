@@ -17,3 +17,8 @@ defaults:
 # Task name. Note that it determines the output directory path
 task_name: "MURaMQS"  # Experiment
 task_seed: 3110  # For reproducibility
+
+# Paths
+paths:
+  run_id: "DeepVel_000"  # Run ID
+  task_dir: "../tracking_outputs"  # Task directory

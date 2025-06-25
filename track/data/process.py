@@ -5,7 +5,7 @@ from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
 
 
-def preprocess(data: np.ndarray, config: DictConfig, stats: Dict, scaling: bool=True, transform: bool=True) \
+def preprocess(data: np.ndarray, config: DictConfig, stats: Dict = None, scaling: bool=True, transform: bool=True) \
         -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
     """ Read data and apply transformations.
 
@@ -46,7 +46,7 @@ def preprocess(data: np.ndarray, config: DictConfig, stats: Dict, scaling: bool=
         return data_prep
 
 
-def postprocess(data: np.ndarray, config: DictConfig, stats: Dict, scaling: bool=True, transform: bool=True) \
+def postprocess(data: np.ndarray, config: DictConfig, stats: Dict = None, scaling: bool=True, transform: bool=True) \
         -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
     """ Transform data back to the original format.
 

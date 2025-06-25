@@ -75,7 +75,8 @@ class ResidualBlock(nn.Module):
 
 class BaseModel(LightningModule):
 
-    def __init__(self, model: nn.Module, optimizer: Callable = torch.optim.Adam, loss_func: Callable = nn.MSELoss()) \
+    def __init__(self, model: nn.Module, optimizer: Callable = torch.optim.Adam, loss_func: Callable = nn.MSELoss(),
+                 log_valid: bool = False) \
             -> None:
         """ Initialize base neural network model. Enables class inheritance.
 
@@ -84,6 +85,7 @@ class BaseModel(LightningModule):
             model: nn. Neural network architecture.
             optimizer: Callable (partially instantiated). Choice of optimizer and corresponding parameters.
             loss_func: Callable (partially instantiated). Loss function.
+            log_valid: bool; default=False. Flag to log validation metrics.
 
             Returns
             -------
@@ -100,7 +102,11 @@ class BaseModel(LightningModule):
         self.loss_func = loss_func
 
         # Test set results
-        self.test_results = None
+        self.test_pred = []
+        # Validation set results
+        if log_valid:
+            self.valid_pred = []
+            self.valid_target = []
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """ Pass forward through neural network architecture.
@@ -153,6 +159,11 @@ class BaseModel(LightningModule):
         if stage == 'test':
             # Store test outputs
             self.test_results.append(y_pred)
+        # For validation set...
+        elif stage == 'valid':
+            # Store validation outputs and targets
+            self.valid_pred.append(y_pred)
+            self.valid_target.append(y)
 
         return loss
 
@@ -201,6 +212,39 @@ class BaseModel(LightningModule):
 
         return self.base_step(batch, batch_nb, stage='test')
 
+    def on_validation_epoch_start(self) -> None:
+        """ Perform validation epoch start.
+
+            Parameters
+            ----------
+            None.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Aggregate validation results and convert to numpy array
+        self.valid_pred = []
+        self.valid_target = []
+
+    def on_validation_epoch_end(self) -> None:
+        """ Perform validation epoch end.
+
+            Parameters
+            ----------
+            None.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Clear the lists for the next epoch
+        if self.log_valid:
+            self.valid_pred.clear()
+            self.valid_target.clear()
+
     def on_test_epoch_start(self) -> None:
         """ Perform test epoch start.
 
@@ -214,7 +258,7 @@ class BaseModel(LightningModule):
         """
 
         # Aggregate test results and convert to numpy array
-        self.test_results = []
+        self.test_pred = []
 
     def on_test_epoch_end(self) -> None:
         """ Perform test epoch end.
@@ -229,7 +273,7 @@ class BaseModel(LightningModule):
         """
 
         # Aggregate test results and convert to numpy array
-        self.test_results = torch.cat(self.test_results).cpu().numpy()
+        self.test_pred = torch.cat(self.test_pred).cpu().numpy()
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         """ Instantiate optimizer.

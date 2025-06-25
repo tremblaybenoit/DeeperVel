@@ -471,6 +471,42 @@ def plot_map(ax, img, img_alpha=1.0, img_norm='linear', img_coord=(0, 0), img_sh
                        ticks=cb_ticks, tickw=cb_tickw, tickl=cb_tickl, tickdir=cb_dir)
 
 
+def fig_scatterplots(target: np.ndarray, pred: np.ndarray, title_prefix: str = ''):
+    """ Create a scatterplot of target vs prediction.
+
+    Parameters
+    ----------
+    target : numpy.ndarray. Target data.
+    pred : numpy.ndarray. Predicted data.
+    title_prefix : str. Prefix for the title.
+
+    Returns
+    -------
+    None.
+    """
+
+    # Dimensions
+    n_samples, ny, nx, n_channels = target.shape
+
+    # Create a flexible gridspec
+    # From n_profiles, determine optimal layout for flexible_gridspec
+    n_rows = int(np.ceil(np.sqrt(n_channels)))
+    n_cols = int(np.ceil(n_channels / n_rows))
+    # Create a flexible gridspec
+    list_cols = [n_cols for _ in range(n_rows)]
+    fig, get_axes = flexible_gridspec(list_cols, cell_width=4, cell_height=4)
+
+    # Loop over variables
+    for v in tqdm(range(n_channels), desc="Plotting scatterplots"):
+        ax = get_axes(v // n_cols, v % n_cols)
+        # Create scatterplot
+        scatterplot(fig, ax, target[:, :, :, v].flatten(), pred[:, :, :, v].flatten(),
+                    title=f"{title_prefix} - Variable {v}",
+                    x_label='Target', y_label='Prediction')
+
+    return fig
+
+
 if __name__ == "__main__":
 
     ex_path = "E:\\Data\\ISSI_Team_Flows\\Matthias\\SSD_25x8Mm_16_pdmp_1_ISSI_Flows\\2D"  # os.path.abspath("../E/Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D/")

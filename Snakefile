@@ -1,4 +1,4 @@
-from config.get_hydra_config import read_hydra_as_dict, check_key_in_dict
+from config.setup import read_hydra_as_dict, check_key_in_dict
 
 
 #########################################################################################################

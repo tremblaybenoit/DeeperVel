@@ -166,8 +166,8 @@ class LazyDataModule(BaseDataModule):
 
         """
 
-        # Training/validation/testing datasets
-        if stage in ["train", "test"]:
+        # Training & validation sets
+        if stage == "train":
 
             # Read patches
             if os.path.exists(self.ds_split.patches):
@@ -175,35 +175,37 @@ class LazyDataModule(BaseDataModule):
                 with open(self.ds_split.patches, 'rb') as file:
                     patches = pickle.load(file)
 
-            # Training & validation sets
-            if stage == "train":
-                # Split patches
-                patches_train = {
-                    key: var[0:int(np.floor(self.ds_split.train * len(var)))] if isinstance(var, list) else var
-                    for key, var in patches.items()
-                }
-                patches_valid = {
-                    key: var[int(np.floor(self.ds_split.train * len(var))):
-                             int(np.floor((self.ds_split.train + self.ds_split.valid) * len(var)))]
-                    if isinstance(var, list) else var
-                    for key, var in patches.items()
-                }
-                self.ds_train = LazyDataset(self.ds_input, output=self.ds_output, patches=patches_train, augment=self.augment,
-                                            scaling=self.scaling, transform=self.transform)
-                self.ds_valid = LazyDataset(self.ds_input, output=self.ds_output, patches=patches_valid, augment=self.augment,
-                                            scaling=self.scaling, transform=self.transform)
+            # Split patches
+            split_train = (0, self.ds_split.train/(self.ds_split.train+self.ds_split.valid))
+            split_valid = (split_train[1], 1.)
+            patches_train = {
+                key: var[int(np.floor(split_train[0] * len(var))):int(np.floor(split_train[1] * len(var)))]
+                if isinstance(var, list) else var for key, var in patches.items()
+            }
+            patches_valid = {
+                key: var[int(np.floor(split_valid[0] * len(var))):int(np.floor(split_valid[1] * len(var)))]
+                if isinstance(var, list) else var for key, var in patches.items()
+            }
+            self.ds_train = LazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+                                        scaling=self.scaling, transform=self.transform, x_min=patches_train['x_min'],
+                                        nx=patches_train['nx'], y_min=patches_train['y_min'], ny=patches_train['ny'],
+                                        t=patches_train['t'])
+            self.ds_valid = LazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+                                        scaling=self.scaling, transform=self.transform, x_min=patches_valid['x_min'],
+                                        nx=patches_valid['nx'], y_min=patches_valid['y_min'], ny=patches_valid['ny'],
+                                        t=patches_valid['t'])
 
-            elif stage == "test":
-                # Split patches
-                patches_test = {
-                    key: var[int(np.floor((self.ds_split.train + self.ds_split.valid) * len(var))):
-                             int(np.floor((self.ds_split.train + self.ds_split.valid + self.ds_split.test) * len(var)))]
-                    if isinstance(var, list) else var
-                    for key, var in patches.items()
-                }
-                # Test set
-                self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, patches=patches_test,
-                                           scaling=self.scaling, transform=self.transform)
+        elif stage == "test":
+
+            # Read patches
+            if os.path.exists(self.ds_split.patches):
+                # Load from the file
+                with open(self.ds_split.patches, 'rb') as file:
+                    patches = pickle.load(file)
+
+            # Test set
+            self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
+                                       transform=self.transform, t=patches['t_max'])
 
         # Prediction dataset
         elif stage == "predict":
@@ -228,16 +230,21 @@ class LazyDataModule(BaseDataModule):
 
 class BaseDataset(Dataset):
 
-    def __init__(self, config: DictConfig, patches: Dict = None, scaling: bool = False, transform: bool = False) \
-            -> None:
+    def __init__(self, config: DictConfig, scaling: bool = False, transform: bool = False,
+                 t: Union[list, int] = None, x_min: Union[list, int] = None, nx: Union[list, int] = None,
+                 y_min: Union[list, int] = None, ny: Union[list, int] = None) -> None:
         """ Loads and transforms paired data samples of radiances and thermodynamic profiles.
 
             Parameters
             ----------
             config: DictConfig. Configuration file containing data and statistics paths.
-            patches: DictConfig, optional. Patches to read, by default None.
             scaling: bool, optional. Apply scaling, by default False.
             transform: bool, optional. Apply transformations, by default False.
+            t: list or int, optional. List of timesteps to read, by default None.
+            x_min: list or int, optional. Minimum x-coordinate, by default None.
+            nx: list or int, optional. Width of the patch, by default None.
+            y_min: list or int, optional. Minimum y-coordinate, by default None.
+            ny: list or int, optional. Height of the patch, by default None.
 
             Returns
             -------
@@ -248,43 +255,30 @@ class BaseDataset(Dataset):
         super().__init__()
 
         # Read input variables, slices, and timesteps
-        self.io = instantiate(config.io, _partial_=False)
+        self.io = instantiate(config.dataset.io, _partial_=False)
         self.vars = config.variables
         self.slices = config.slices
         self.dt = config.dt if hasattr(config, 'dt') else [0]
 
-        # If patches are provided, use them to set coordinates
-        if patches is not None:
-            self.x_min = patches['x_min']
-            self.x_max = patches['x_max']
-            self.y_min = patches['y_min']
-            self.y_max = patches['y_max']
-            self.nx = patches['nx']
-            self.ny = patches['ny']
-            self.t = [[dt + t] for t in patches['t'] for dt in self.dt]
-        # Else use full FOV
-        else:
-            # If no patches are provided, set coordinates to full FOV
-            self.t = [t for t in range(self.io.nt)]
-            self.x_min = [0 for _ in range(self.io.nt)]
-            self.x_max = [None for _ in range(self.io.nt)]
-            self.y_min = [0 for _ in range(self.io.nt)]
-            self.y_max = [None for _ in range(self.io.nt)]
-            self.nx = self.io.nx
-            self.ny = self.io.ny
+        # Patches
+        self.t = [t for t in range(self.io.nt)] if t is None else [[dt_i + t_i] for t_i in t for dt_i in self.dt]
+        self.x_min = [0 for _ in range(len(self.t))] if x_min is None else x_min
+        self.y_min = [0 for _ in range(len(self.t))] if y_min is None else y_min
+        self.nx = self.io.nx if nx is None else nx
+        self.ny = self.io.ny if ny is None else ny
 
         # If stats are provided, store them and instantiate scaling objects
-        if config.stats is not None:
+        if hasattr(config.dataset, 'statistics'):
             # Verify if stats are available
-            if os.path.exists(config.stats):
+            if os.path.exists(config.dataset.statistics.path):
                 # Load from the file
-                with open(config.stats, 'rb') as file:
+                with open(config.dataset.statistics.path, 'rb') as file:
                     stats = pickle.load(file)
                     # Extract statistics along relevant channels only
                     self.input_stats = stats[self.vars.keys()]
             else:
-                logger.error(f"Statistics file {config.stats} does not exist.")
-                raise ValueError(f"Statistics file {config.stats} does not exist.")
+                logger.error(f"Statistics file {config.dataset.statistics.path} does not exist.")
+                raise ValueError(f"Statistics file {config.dataset.statistics.path} does not exist.")
         else:
             self.stats = None
 
@@ -387,18 +381,23 @@ class BaseDataset(Dataset):
 
 class LazyDataset(Dataset):
 
-    def __init__(self, input: DictConfig, output: DictConfig = None, patches: Dict = None,
-                 scaling: bool = False, transform: bool = False, augment: bool = False) -> None:
+    def __init__(self, input: DictConfig, output: DictConfig = None, scaling: bool = False, transform: bool = False,
+                 augment: bool = False, t: Union[list, int] = None, x_min: Union[list, int] = None,
+                 nx: Union[list, int] = None, y_min: Union[list, int] = None, ny: Union[list, int] = None) -> None:
         """ Loads and transforms paired data samples of radiances and thermodynamic profiles.
 
             Parameters
             ----------
             input: DictConfig. Input data configuration.
             output: DictConfig, optional. Output data configuration, by default None.
-            patches: Dict, optional. Patches to read, by default None.
             scaling: bool, optional. Apply scaling, by default False.
             transform: bool, optional. Apply transformations, by default False.
             augment: bool, optional. Apply data augmentation, by default False.
+            t: list or int, optional. List of timesteps to read, by default None.
+            x_min: list or int, optional. Minimum x-coordinate, by default None.
+            nx: list or int, optional. Width of the patch, by default None.
+            y_min: list or int, optional. Minimum y-coordinate, by default None.
+            ny: list or int, optional. Height of the patch, by default None.
 
             Returns
             -------
@@ -409,10 +408,10 @@ class LazyDataset(Dataset):
         super().__init__()
 
         # Read input variables, slices, and timesteps
-        self.input = BaseDataset(input.io, patches=patches)
+        self.input = BaseDataset(input.dataset.io, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny)
         # If output is provided, read it
         if output is not None:
-            self.output = BaseDataset(output.io, patches=patches)
+            self.output = BaseDataset(output.dataset.io, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny)
         else:
             self.output = None
 
