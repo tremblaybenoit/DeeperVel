@@ -1,6 +1,5 @@
 from pytorch_lightning.callbacks import Callback
 import matplotlib.pyplot as plt
-import torch
 from track.utilities.plot import fig_scatterplots
 import wandb
 import tempfile
@@ -32,8 +31,8 @@ class FigureLogger(Callback):
         current_epoch = trainer.current_epoch
         if trainer.sanity_checking is False:
             # Data
-            target = torch.cat(model.valid_target, dim=0).cpu().numpy()
-            pred = torch.cat(model.valid_pred, dim=0).cpu().numpy()
+            target = model.valid_target
+            pred = model.valid_pred
 
             # Generate figures
             fig0 = fig_scatterplots(target, pred, title=f"Epoch {current_epoch:02d}")

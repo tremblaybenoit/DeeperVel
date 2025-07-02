@@ -43,6 +43,74 @@ def read_netcdf(filename, engine="h5netcdf"):
     return read_xarray(filename, engine=engine)
 
 
+def get_tau_filename(path: str, slice: Union[int, float], iter: int):
+    """ Get the filename for a tau slice.
+
+    Parameters
+    ----------
+    path: str. Path to the dataset.
+    slice: float. Tau slice value.
+    iter: int. Iteration number.
+
+    Returns
+    -------
+    str: Formatted filename for the tau slice.
+    """
+
+    # Choose formatting based on the value
+    if slice < 1e-3:
+        slice_str = f"{slice:.6f}"
+    else:
+        slice_str = f"{slice:05.3f}"
+    return f"{path}{slice_str}.{iter:06d}"
+
+
+def read_MURaMQS_var(nx, ny, iter: int, slice: Union[int, float], var: dict, x_min: int = 0, x_max: int = None, y_min: int = 0,
+                     y_max: int = None):
+    """ Read a slice from a MURaM data file.
+
+    Parameters
+    ----------
+    iter: int. Iteration to read.
+    slice: int. Slice to read.
+    var: str. Variable to read.
+    x_min: int. Minimum x coordinate.
+    x_max: int. Maximum x coordinate.
+    y_min: int. Minimum y coordinate.
+    y_max: int. Maximum y coordinate.
+    nx: int. Length of x coordinate.
+    ny: int. Length of y coordinate.
+
+    Returns
+    ----------
+    data: np.ndarray. Data read from the file.
+    """
+
+    # Meta data
+    meta = var
+
+    # Get filename
+    filename = get_tau_filename(meta['file_pattern'], slice, iter) if 'tau' in meta['file_pattern'] \
+        else meta['file_pattern'].format(iter=iter, slice=slice)
+
+    # Compute itemsize
+    itemsize = np.dtype(meta['dtype']).itemsize
+    # Compute dimensions
+    x_max, y_max = x_max or nx, y_max or ny
+    # Compute offset to variable
+    offset = (4 + (meta['index'] * nx * ny)) * itemsize
+
+    # Memory map the file and read variable
+    # data_tmp = np.memmap(filename, dtype=meta['dtype'], mode='r', offset=offset, shape=(1, self.nx, self.ny),
+    #                      order='F')
+    with open(filename, 'rb') as f:
+        f.seek(offset)
+        data_tmp = np.fromfile(f, dtype=meta['dtype'], count=nx * ny)
+        data_tmp = data_tmp.reshape((1, nx, ny), order='F')
+    # Extract a patch of data
+    return data_tmp[0, y_min:y_max, x_min:x_max] * meta['units']['scaling']
+
+
 class FitsDataset:
     """ Fits dataset class. """
     def __init__(self, path: Union[str, List[str]]):
@@ -65,7 +133,7 @@ class FitsDataset:
 class MURaMQSDataset:
     """ MURaMQS reader class."""
 
-    def __init__(self, path: str, dataset: str='yz') -> None:
+    def __init__(self, path: str, dataset: str='yz', slices = None) -> None:
         """ Initialize MURaMQSDataset object.
 
         Parameters
@@ -89,8 +157,12 @@ class MURaMQSDataset:
                       'iter_start': 0, 'iter_end': 18000}
         # Dataset configurations
         self.datasets = {
+            'I500': {**base_slice,
+                     'file_pattern': f'{path}/I_out.{{iter:06d}}',
+                     'slices': [0],
+                    },
             'tau': {**base_slice,
-                    'file_pattern': f'{path}/tau_slice_{{slice:05.3f}}.{{iter:06d}}',
+                    'file_pattern': f'{path}/tau_slice_',
                     'slices': [1, 1.e-1, 1.e-2, 1.e-3, 1.e-4, 1.e-5, 1.e-6],
                     },
             'yz': {**base_slice,
@@ -131,7 +203,7 @@ class MURaMQSDataset:
             self.iter_start = int(self.dataset['iter_start'])
             self.iter_end = int(self.dataset['iter_end'])
             self.iter = [i for i in range(self.iter_start, self.iter_end + 1, self.dstep)]
-            self.slices = self.dataset['slices']
+            self.slices = self.dataset['slices'] if slices is None else slices
 
         # Variables meta data
         self.vars  = {
@@ -238,16 +310,20 @@ class MURaMQSDataset:
             offset = (4 + (meta['index'] * self.nx * self.ny)) * itemsize
 
             # Memory map the file and read variable
-            data_tmp = np.memmap(filename, dtype=meta['dtype'], mode='r', offset=offset, shape=(1, self.nx, self.ny),
-                                 order='F')
+            # data_tmp = np.memmap(filename, dtype=meta['dtype'], mode='r', offset=offset, shape=(1, self.nx, self.ny),
+            #                      order='F')
+            with open(filename, 'rb') as f:
+                f.seek(offset)
+                data_tmp = np.fromfile(f, dtype=meta['dtype'], count=self.nx * self.ny)
+                data_tmp = data_tmp.reshape((1, self.nx, self.ny), order='F')
             # Extract patch of data
             return data_tmp[0, y_min:y_max, x_min:x_max] * meta['units']['scaling']
         else:
             raise ValueError(f"Variable {var} not recognized.")
 
-    def read(self, t: Union[int, list[int]], slices: Union[int, list[int]], vars: Union[str, list[str]],
-             x_min: Union[int, list[int]] = 0, nx: int = None, y_min: Union[int, list[int]] = 0, ny: int = None,
-             num_workers: int = None) -> np.ndarray:
+    def read(self, t: Union[int, list[int]], slices: Union[int, float, list[int], list[float]],
+             vars: Union[str, list[str]], x_min: Union[int, list[int]] = 0, nx: int = None,
+             y_min: Union[int, list[int]] = 0, ny: int = None, num_workers: int = None) -> np.ndarray:
         """ Read slices from different timesteps in parallel.
 
         Parameters
@@ -271,7 +347,8 @@ class MURaMQSDataset:
         iters = [self.iter[i] for i in t]
         if isinstance(vars, str):
             vars = [vars]
-        if isinstance(slices, int):
+        vars = [self.vars[var] for var in vars]
+        if isinstance(slices, int) or isinstance(slices, float):
             slices = [slices]
 
         # Format x_min, x_max, y_min, y_max to lists
@@ -293,7 +370,8 @@ class MURaMQSDataset:
         else:
             coordinates = list(itertools.product(zip(x_min, x_max, y_min, y_max), iters))
         iterables = list(itertools.product(coordinates, slices, vars))
-        args = [(i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
+        # args = [(i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
+        args = [(self.nx, self.ny, i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
 
         # Number of workers
         if num_workers is None:
@@ -301,9 +379,10 @@ class MURaMQSDataset:
 
         # Process data in parallel
         with Pool(num_workers) as p:
-            data = np.stack(list(tqdm(p.starmap(self.read_var, args), total=len(args))), axis=0)
+            data = np.stack(list(p.starmap(read_MURaMQS_var, args)), axis=0)
+            # data = np.stack(list(tqdm(p.starmap(self.read_var, args), total=len(args))), axis=0)
 
-        # Reshape data
+        # Reshape data to (ny, nx, n_slices, n_iters, n_vars)
         data = (data.reshape(len(coordinates), len(slices), len(vars), ny, nx)).transpose(3, 4, 1, 0, 2)
 
         return data

@@ -6,7 +6,8 @@ import hydra
 from omegaconf import DictConfig
 from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
-from track.data.process import preprocess, postprocess
+from track.data.process import preprocess
+import gc
 
 
 def combine_statistics(stats: List[Dict[str, Union[np.ndarray, torch.Tensor, int]]]) \
@@ -129,8 +130,13 @@ def compute_statistics(config: DictConfig) -> None:
         # Loop over levels
         for s in slices:
 
+            # Initialize statistics for the current level
+            stats[s] = {}
+
             # Loop over variables
             for variable, variable_config in dataset.variables.items():
+
+                print(f"Computing statistics for {variable} at level {s}...")
 
                 # Read data for the current variable and level
                 data = io.read(t, s, variable)
@@ -138,36 +144,27 @@ def compute_statistics(config: DictConfig) -> None:
                 # Apply transformations
                 if hasattr(variable_config, "transform"):
                     data = preprocess(data, variable_config, scaling=False, transform=True)
-                breakpoint()
 
                 # Compute statistics
-                stats[(s, variable)] = statistics(data, axis=tuple(range(data.ndim - 1)))
+                stats[s][variable] = statistics(data, axis=tuple(range(data.ndim - 1)))
                 # Clear memory
                 data = None
+                gc.collect()
 
-            # Combine statistics for horizontal variables
-            if "vx" in dataset.variables and "vy" in dataset.variables:
-                stats_negative_x = {
-                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
-                    for key, value in stats[(s, "vx")].items()
-                }
-                stats_negative_y = {
-                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
-                    for key, value in stats[(s, "vy")].items()
-                }
-                stats[(s, "vx")] = stats[(s, "vy")] = combine_statistics([stats[(s, "vx")], stats[(s, "vy")],
-                                                                          stats_negative_x, stats_negative_y])
-            if "Bx" in dataset.variables and "By" in dataset.variables:
-                stats_negative_x = {
-                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
-                    for key, value in stats[(s, "Bx")].items()
-                }
-                stats_negative_y = {
-                    key: -value if key not in ["n_samples", "stdev", "variance"] else value
-                    for key, value in stats[(s, "By")].items()
-                }
-                stats[(s, "Bx")] = stats[(s, "By")] = combine_statistics([stats[(s, "Bx")], stats[(s, "By")],
-                                                                          stats_negative_x, stats_negative_y])
+            # Check for flags - Invariance in the transverse direction
+            if config.transverse_invariance:
+                print("Applying transverse invariance...")
+
+                # Combine statistics for horizontal variables
+                for vpair in [("vx", "vy"), ("Bx", "By")]:
+                    if all(v in dataset.variables for v in vpair):
+                        negatives = [
+                            {key: -value if key not in ["n_samples", "stdev", "variance"] else value
+                             for key, value in stats[s][v].items()}
+                            for v in vpair
+                        ]
+                        combined_stats = combine_statistics([stats[s][vpair[0]], stats[s][vpair[1]], *negatives])
+                        stats[s][vpair[0]] = stats[s][vpair[1]] = combined_stats
 
         # Save statistics to a file
         with open(dataset.statistics.path, 'wb') as file:
@@ -175,6 +172,7 @@ def compute_statistics(config: DictConfig) -> None:
             pickle.dump(stats, file)
         # Clear memory
         io = None
+        gc.collect()
 
     return
 

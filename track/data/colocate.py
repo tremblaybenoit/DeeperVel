@@ -66,11 +66,6 @@ def colocate(config: DictConfig, save=True) -> dict:
     # Initialize data loader
     io = instantiate(data_config, _partial_=False)
 
-    # Source
-    src = {"nx": io.nx, "x_min": 0, "x_max": None, "ny": io.ny, "y_min": 0, "y_max": None, "nt": io.nt,
-           "t": [t_i for t_i in io.t
-                 if np.abs(np.amin(io.t) + np.amin(patches_config.dt)) <= t_i <= np.amax(io.t) - 1 - np.abs(np.amax(patches_config.dt))]}
-
     # Constraints for colocated data
     x_min, y_min = 0, 0
     x_max, y_max = io.nx - patches_config.size[1], io.ny - patches_config.size[0]
@@ -82,7 +77,7 @@ def colocate(config: DictConfig, save=True) -> dict:
     # Store colocated data
     patches = {"nx": patches_config.size[1], "x_min": x, "x_max": [x_i + patches_config.size[1] for x_i in x],
                "ny": patches_config.size[0], "y_min": y, "y_max": [y_i + patches_config.size[0] for y_i in y],
-               "nt": patches_config.n_samples, "t": t, "t_min": t_min, "t_max": t_max, "source": src}
+               "nt": patches_config.n_samples, "t": t, "t_min": t_min, "t_max": t_max}
 
     # Save colocated data to a file
     if save and getattr(getattr(config.output, "patches", None), "path", None):

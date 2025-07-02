@@ -3,7 +3,7 @@
 
 # Overriding default structure
 defaults:
-  - override /data: MURaMQS
+  - override /data: MURaMQSDataset
   - override /paths: default
   - override /hydra: default
   - override /model: DeepVel

@@ -276,9 +276,8 @@ def flip(data: Union[np.ndarray, torch.Tensor], n: Union[int, tuple[int]] = None
         return data_transform
 
 
-def augment(data: Union[np.ndarray, torch.Tensor], n_rot90: int = 0, axes_rot90: Union[int, tuple[int, int]] = 1,
-            n_flip: int = None, inverse_transform: bool = False) \
-        -> Union[np.ndarray, torch.Tensor]:
+def augment_scalar(data: Union[np.ndarray, torch.Tensor], n_rot90: int = 0, axes_rot90: Union[int, tuple[int, int]] = 1,
+                   n_flip: int = None, inverse_transform: bool = False) -> Union[np.ndarray, torch.Tensor]:
     """ Apply random rotation and flip to the dataset.
 
         Parameters
@@ -306,7 +305,8 @@ def augment_vector(data_x: Union[np.ndarray, torch.Tensor], data_y: Union[np.nda
                    n_rot90: int = 0, n_flip: int = None, axes_rot90: Union[int, tuple[int, int]] = 1,
                    inverse_transform: bool = False) \
         -> tuple[Union[np.ndarray, torch.Tensor], Union[np.ndarray, torch.Tensor]]:
-    """ Perform all possible augmentations of a vector, accounting for directionality (positive and negative signs based on direction.
+    """ Perform all possible augmentations of a vector, accounting for directionality
+        (positive and negative signs based on the direction).
 
         Parameters
         ----------
@@ -346,58 +346,36 @@ def augment_vector(data_x: Union[np.ndarray, torch.Tensor], data_y: Union[np.nda
 
     return data_transform_x, data_transform_y
 
+def geometric_augmentation(data: Union[np.ndarray, torch.Tensor, tuple[np.ndarray, np.ndarray], tuple[torch.Tensor, torch.Tensor]],
+                           vars: list[str], n_rot90: int = 0, axes_rot90: Union[int, tuple[int, int]] = 1, n_flip: int = None) \
+        -> Union[np.ndarray, torch.Tensor, tuple[np.ndarray, np.ndarray], tuple[torch.Tensor, torch.Tensor]]:
+    """ Apply geometric augmentation to the dataset.
 
-def apply_vector_augmentation(sample, aug_type, vector_keys=[('vx', 'vy')]):
+        Parameters
+        ----------
+        data: arr or tensor. Contains data to transform.
+        vars: list of str. Variables to apply augmentation to.
+        n_rot90: int. Number of 90 degree rotations.
+        axes_rot90: int or tuple. Axes to rotate.
+        n_flip: int. Axis to flip along.
+
+        Returns
+        -------
+        data_transform: arr or tensor. Transformed dataset.
     """
-    Apply augmentation to a sample containing vector fields.
-    sample: dict of np.ndarray, e.g., {'vx': ..., 'vy': ..., ...}
-    aug_type: str, e.g., 'rot90+flip_x'
-    vector_keys: list of tuples, each tuple contains the keys for a vector field
-    """
-    def _rotate90(vx, vy):
-        # 90 deg CCW: (vx, vy) -> (-vy, vx)
-        return -np.rot90(vy, k=1), np.rot90(vx, k=1)
-    def _rotate180(vx, vy):
-        # 180 deg: (vx, vy) -> (-vx, -vy)
-        return -np.rot90(vx, k=2), -np.rot90(vy, k=2)
-    def _rotate270(vx, vy):
-        # 270 deg CCW: (vx, vy) -> (vy, -vx)
-        return np.rot90(vy, k=3), -np.rot90(vx, k=3)
-    def _flip_x(vx, vy):
-        # Flip x axis: invert vx
-        return -np.flip(vx, axis=1), np.flip(vy, axis=1)
-    def _flip_y(vx, vy):
-        # Flip y axis: invert vy
-        return np.flip(vx, axis=0), -np.flip(vy, axis=0)
 
-    if '+' in aug_type:
-        for op in aug_type.split('+'):
-            sample = apply_vector_augmentation(sample, op, vector_keys)
-        return sample
+    # Copy data to avoid in-place modification
+    data = data.copy()
 
-    for keys in vector_keys:
-        vx, vy = sample[keys[0]], sample[keys[1]]
-        if aug_type == 'rot90':
-            vx, vy = _rotate90(vx, vy)
-        elif aug_type == 'rot180':
-            vx, vy = _rotate180(vx, vy)
-        elif aug_type == 'rot270':
-            vx, vy = _rotate270(vx, vy)
-        elif aug_type == 'flip_x':
-            vx, vy = _flip_x(vx, vy)
-        elif aug_type == 'flip_y':
-            vx, vy = _flip_y(vx, vy)
-        sample[keys[0]], sample[keys[1]] = vx, vy
-
-    # For scalar fields, just apply the geometric transform
-    for k, v in sample.items():
-        if not any(k in pair for pair in vector_keys):
-            if aug_type.startswith('rot'):
-                k_rot = int(aug_type.replace('rot', ''))
-                v = np.rot90(v, k=k_rot // 90)
-            elif aug_type == 'flip_x':
-                v = np.flip(v, axis=1)
-            elif aug_type == 'flip_y':
-                v = np.flip(v, axis=0)
-            sample[k] = v
-    return sample
+    # Vector augmentation
+    for vpair in [("vx", "vy"), ("Bx", "By")]:
+        if all(v in vars for v in vpair):
+            idx_x, idx_y = vars.index(vpair[0]), vars.index(vpair[1])
+            data[..., idx_x], data[..., idx_y] = augment_vector(data[..., idx_x], data[..., idx_y],
+                                                                n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+    # Scalar augmentation
+    for scalar in ["I500", "vz", "Bz"]:
+        if scalar in vars:
+            idx = vars.index(scalar)
+            data[..., idx] = augment_scalar(data[..., idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+    return data

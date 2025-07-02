@@ -8,6 +8,7 @@ from typing import List, Tuple, Union, Dict
 from track.utilities.instantiators import instantiate
 from track.data.process import preprocess, postprocess
 import logging
+from track.data.transformations import geometric_augmentation
 
 
 # Initialize logger
@@ -16,8 +17,9 @@ logger = logging.getLogger(__name__)
 
 class BaseDataModule(lightning.LightningDataModule):
 
-    def __init__(self, input: DictConfig, output: DictConfig, split: DictConfig = None,
-                 batch_size: int = 32, num_workers: int = None, pin_memory: bool = True, shuffle: bool = True) -> None:
+    def __init__(self, input: Union[DictConfig, ListConfig], output: Union[DictConfig, ListConfig],
+                 split: DictConfig = None, batch_size: int = 32, num_workers: int = None, pin_memory: bool = True,
+                 shuffle: bool = True) -> None:
         """ Loads paired samples of input and output data.
 
             Parameters
@@ -122,7 +124,7 @@ class BaseDataModule(lightning.LightningDataModule):
 
 class LazyDataModule(BaseDataModule):
 
-    def __init__(self, input: DictConfig, output: DictConfig, split: DictConfig = None, augment: bool = None,
+    def __init__(self, input: DictConfig, output: DictConfig, split: DictConfig = None, augment: bool = False,
                  batch_size: int = 32, num_workers: int = None, pin_memory: bool = True, shuffle: bool = True) -> None:
         """ Loads paired data samples of radiances and thermodynamic profiles.
 
@@ -166,46 +168,50 @@ class LazyDataModule(BaseDataModule):
 
         """
 
-        # Training & validation sets
-        if stage == "train":
-
+        # Load patches
+        if stage in ["train", "test"] and hasattr(self.ds_split, 'patches'):
             # Read patches
             if os.path.exists(self.ds_split.patches):
                 # Load from the file
                 with open(self.ds_split.patches, 'rb') as file:
                     patches = pickle.load(file)
 
-            # Split patches
-            split_train = (0, self.ds_split.train/(self.ds_split.train+self.ds_split.valid))
-            split_valid = (split_train[1], 1.)
+        # Training & validation sets
+        if stage == "train":
+            # If split is provided, use it to create training and validation sets
             patches_train = {
-                key: var[int(np.floor(split_train[0] * len(var))):int(np.floor(split_train[1] * len(var)))]
-                if isinstance(var, list) else var for key, var in patches.items()
+                key: var[:self.ds_split.train] if isinstance(var, list) else var for key, var in patches.items()
             }
             patches_valid = {
-                key: var[int(np.floor(split_valid[0] * len(var))):int(np.floor(split_valid[1] * len(var)))]
+                key: var[self.ds_split.train:self.ds_split.train + self.ds_split.valid]
                 if isinstance(var, list) else var for key, var in patches.items()
             }
-            self.ds_train = LazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+            self.ds_train = MultiLazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
                                         scaling=self.scaling, transform=self.transform, x_min=patches_train['x_min'],
                                         nx=patches_train['nx'], y_min=patches_train['y_min'], ny=patches_train['ny'],
                                         t=patches_train['t'])
-            self.ds_valid = LazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+            self.ds_valid = MultiLazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
                                         scaling=self.scaling, transform=self.transform, x_min=patches_valid['x_min'],
                                         nx=patches_valid['nx'], y_min=patches_valid['y_min'], ny=patches_valid['ny'],
                                         t=patches_valid['t'])
 
         elif stage == "test":
 
-            # Read patches
-            if os.path.exists(self.ds_split.patches):
-                # Load from the file
-                with open(self.ds_split.patches, 'rb') as file:
-                    patches = pickle.load(file)
-
             # Test set
-            self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
-                                       transform=self.transform, t=patches['t_max'])
+            if hasattr(self.ds_split, 'test') and self.ds_split.test is not None:
+                # Use the test set from the split
+                patches_test = {
+                    key: var[self.ds_split.train+self.ds_split.valid:self.ds_split.train+self.ds_split.valid+self.ds_split.test]
+                    if isinstance(var, list) else var for key, var in patches.items()
+                }
+                self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
+                                           transform=self.transform, x_min=patches_test['x_min'],
+                                           nx=patches_test['nx'], y_min=patches_test['y_min'], ny=patches_test['ny'],
+                                           t=patches_test['t'])
+            else:
+                # Use all available data
+                self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
+                                           transform=self.transform)
 
         # Prediction dataset
         elif stage == "predict":
@@ -225,7 +231,7 @@ class LazyDataModule(BaseDataModule):
         """
 
         # Prediction dataset
-        self.ds_pred = LazyDataset(input, patches=patches, scaling=self.scaling, transform=self.transform)
+        self.ds_pred = LazyDataset(input, scaling=self.scaling, transform=self.transform)
 
 
 class BaseDataset(Dataset):
@@ -261,7 +267,7 @@ class BaseDataset(Dataset):
         self.dt = config.dt if hasattr(config, 'dt') else [0]
 
         # Patches
-        self.t = [t for t in range(self.io.nt)] if t is None else [[dt_i + t_i] for t_i in t for dt_i in self.dt]
+        self.t = [t for t in range(self.io.nt)] if t is None else [[dt_i + t_i for dt_i in self.dt] for t_i in t]
         self.x_min = [0 for _ in range(len(self.t))] if x_min is None else x_min
         self.y_min = [0 for _ in range(len(self.t))] if y_min is None else y_min
         self.nx = self.io.nx if nx is None else nx
@@ -275,7 +281,7 @@ class BaseDataset(Dataset):
                 with open(config.dataset.statistics.path, 'rb') as file:
                     stats = pickle.load(file)
                     # Extract statistics along relevant channels only
-                    self.input_stats = stats[self.vars.keys()]
+                    self.stats = {slice: {var: stats[slice][var] for var in list(self.vars.keys())} for slice in self.slices}
             else:
                 logger.error(f"Statistics file {config.dataset.statistics.path} does not exist.")
                 raise ValueError(f"Statistics file {config.dataset.statistics.path} does not exist.")
@@ -309,7 +315,7 @@ class BaseDataset(Dataset):
         # If no specific iters, slices, or vars are provided, use the default ones
         t = self.t if t is None else t
         slices = self.slices if slices is None else slices
-        vars = self.vars.keys() if vars is None else vars
+        vars = list(self.vars.keys()) if vars is None else vars
         x_min = self.x_min if x_min is None else x_min
         y_min = self.y_min if y_min is None else y_min
         nx = self.nx if nx is None else nx
@@ -335,13 +341,14 @@ class BaseDataset(Dataset):
         """
 
         # Extract radiance data at specified index
-        if len(self.vars) > 1:
-            return np.stack([preprocess(data[..., v], self.vars[var], self.stats[var], scaling=scaling,
-                                        transform=transform)
-                             for v, var in enumerate(self.vars.keys())], axis=-1)
-        else:
-            return preprocess(data[..., self.vars.keys()[0]], self.vars[self.vars.keys()[0]],
-                              self.stats[self.vars.keys()[0]], scaling=scaling, transform=transform)
+        return np.stack([
+            np.stack([
+                preprocess(data[:, :, s_idx, :, v_idx], self.vars[var],
+                           self.stats[s][var], scaling=scaling, transform=transform)
+                for v_idx, var in enumerate(list(self.vars.keys()))
+            ], axis=-1).reshape((data.shape[0], data.shape[1], 1, data.shape[3], data.shape[4]))  # Stack over variables
+            for s_idx, s in enumerate(self.slices if isinstance(self.slices, ListConfig) else [self.slices])
+        ], axis=2)  # Stack over slices
 
     def __len__(self) -> int:
         """ Get the length of the dataset.
@@ -369,7 +376,7 @@ class BaseDataset(Dataset):
         """
 
         # Read data
-        data = self.io.read(self.t[item], self.slices, self.vars.keys(), nx=self.nx, ny=self.ny,
+        data = self.io.read(self.t[item], self.slices, list(self.vars.keys()), nx=self.nx, ny=self.ny,
                             x_min=self.x_min[item], y_min=self.y_min[item])
 
         # Apply transformations
@@ -450,13 +457,30 @@ class LazyDataset(Dataset):
 
         # If output is provided, read it
         if self.output is not None:
+
             # Read output data
             output_data = self.output[item]
 
             # Apply augmentation to input_data and output_data if specified
             if self.augment:
-                # TODO: Implement data augmentation logic here
-                pass
+                # Combinations for geometric augmentation
+                combinations = [
+                    (0, None),  # identity
+                    (1, None),  # rot90
+                    (2, None),  # rot180
+                    (3, None),  # rot270
+                    (0, 0),  # flip x
+                    (0, 1),  # flip y
+                    (1, 0),  # rot90 + flip x
+                    (1, 1),  # rot90 + flip y
+                ]
+                n_flip, n_rot90 = combinations[np.random.randint(0, 8)]
+                axes_rot90 = (0, 1)
+                # Apply geometric augmentation to input and output data
+                input_data = geometric_augmentation(input_data, self.input.vars.keys(),
+                                                    n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                output_data = geometric_augmentation(output_data, self.output.vars.keys(),
+                                                    n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
 
             # Transform output data if specified
             if self.scaling or self.transform:
@@ -473,3 +497,118 @@ class LazyDataset(Dataset):
             return input_data.reshape(self.input.ny, self.input.nx, -1), output_data.reshape(self.input.ny, self.input.nx, -1)
         else:
             return input_data.reshape(self.input.ny, self.input.nx, -1)  # Reshape to (ny, nx, channels) if no output data is available
+
+
+class MultiLazyDataset(Dataset):
+    def __init__(self, input: ListConfig, output: ListConfig = None, scaling: bool = False,
+                 transform: bool = False, augment: bool = False, t: Union[list, int] = None,
+                 x_min: Union[list, int] = None, nx: Union[list, int] = None, y_min: Union[list, int] = None,
+                 ny: Union[list, int] = None) -> None:
+        """ Loads and transforms paired data samples.
+
+            Parameters
+            ----------
+            input: ListConfig. List of input data configurations.
+            output: ListConfig, optional. List of output data configurations, by default None.
+            scaling: bool, optional. Apply scaling, by default False.
+            transform: bool, optional. Apply transformations, by default False.
+            augment: bool, optional. Apply data augmentation, by default False.
+            t: list or int, optional. List of timesteps to read, by default None.
+            x_min: list or int, optional. Minimum x-coordinate, by default None.
+            nx: list or int, optional. Width of the patch, by default None.
+            y_min: list or int, optional. Minimum y-coordinate, by default None.
+            ny: list or int, optional. Height of the patch, by default None.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Class inheritance
+        super().__init__()
+
+        # Read input variables, slices, and timesteps
+        self.inputs = [BaseDataset(cfg, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny) for cfg in input]
+        self.outputs = [BaseDataset(cfg, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny) for cfg in output] if output is not None else None
+        # Transformations and scaling
+        self.scaling = scaling
+        self.transform = transform
+        self.augment = augment
+
+    def __len__(self) -> int:
+        """ Get the length of the dataset.
+
+            Parameters
+            ----------
+            None.
+
+            Returns
+            -------
+            int: Length of the dataset.
+        """
+        return len(self.inputs[0].t)
+
+    def __getitem__(self, item: int) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """ Get data and apply transformations.
+
+            Parameters
+            ----------
+            item: int. Index of item to read.
+
+            Returns
+            -------
+            Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]: Input data, and optionally output data.
+        """
+
+        # Read data from all input datasets
+        input_data = [ds[item] for ds in self.inputs]
+
+        # If output datasets are provided, read them as well
+        if self.outputs is not None:
+            # Read data from all output datasets
+            output_data = [ds[item] for ds in self.outputs]
+
+            # Apply augmentations if specified
+            if self.augment:
+                # Combinations for geometric augmentation
+                combinations = [
+                    (0, None),  # identity
+                    (1, None),  # rot90
+                    (2, None),  # rot180
+                    (3, None),  # rot270
+                    (0, 0),  # flip x
+                    (0, 1),  # flip y
+                    (1, 0),  # rot90 + flip x
+                    (1, 1),  # rot90 + flip y
+                ]
+                n_flip, n_rot90 = combinations[np.random.randint(0, 8)]
+                axes_rot90 = (0, 1)
+                # Apply augmentation to input and output data
+                input_data = [geometric_augmentation(data, ds.vars.keys(), n_flip=n_flip, n_rot90=n_rot90,
+                                                     axes_rot90=axes_rot90)
+                              for ds, data in zip(self.inputs, input_data)]
+                output_data = [geometric_augmentation(data, ds.vars.keys(), n_flip=n_flip, n_rot90=n_rot90,
+                                                      axes_rot90=axes_rot90)
+                               for ds, data in zip(self.outputs, output_data)]
+        else:
+            output_data = None
+
+        # Preprocess input and output data if scaling or transformation is specified
+        if self.scaling or self.transform:
+            # Preprocess input data
+            input_data = [ds.preprocess(data, scaling=self.scaling, transform=self.transform) for ds, data in zip(self.inputs, input_data)]
+            # Preprocess output data if available
+            if output_data is not None:
+                output_data = [ds.preprocess(data, scaling=self.scaling, transform=self.transform) for ds, data in zip(self.outputs, output_data)]
+
+        # Combine input and output data into a single array
+        input_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.inputs, input_data)], axis=-1)
+        # If output data is available, combine it as well
+        if output_data is not None:
+            # Combine output data into a single array
+            output_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.outputs, output_data)], axis=-1)
+
+            return input_combined, output_combined
+        # If no output data is available, return only input data
+        else:
+            return input_combined
