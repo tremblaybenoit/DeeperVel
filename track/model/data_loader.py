@@ -668,7 +668,7 @@ class MultiDataset(Dataset):
         # self.output_data = [[ds[i] for i in range(len(ds))] for ds in self.outputs] if self.outputs is not None else None
         self.input_data = [load_all(ds) for ds in tqdm(self.inputs)]
         self.output_data = [load_all(ds) for ds in tqdm(self.outputs)] if self.outputs is not None else None
-        self.length = len(self.input_data)
+        self.length = len(self.input_data[0])
 
     def __len__(self) -> int:
         """ Get the length of the dataset.
@@ -723,6 +723,6 @@ class MultiDataset(Dataset):
         input_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.inputs, input_data)], axis=-1)
         if output_data is not None:
             output_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.outputs, output_data)], axis=-1)
-            return input_combined, output_combined
+            return input_combined.transpose(2, 0, 1), output_combined.transpose(2, 0, 1)
         else:
-            return input_combined
+            return input_combined.transpose(2, 0, 1)

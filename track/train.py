@@ -103,7 +103,7 @@ class Tracker:
         """
 
         # Data loader and trainer setup
-        self.setup(self.config.data, stage='train')
+        self.setup(self.config.data.loader, stage='train')
 
         # Model
         logger.info("Initializing model...")
@@ -138,7 +138,7 @@ class Tracker:
         """
 
         # Data loader and trainer setup
-        self.setup(self.config.data, stage='test')
+        self.setup(self.config.data.loader, stage='test')
 
         # Load model from a checkpoint
         if self.model is None:

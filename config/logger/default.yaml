@@ -3,8 +3,8 @@
 # Loggers to combine
 defaults:
   - mlflow
-  - tensorboard
-  - wandb
+  # - tensorboard
+  # - wandb
 
 # Global parameters
 name: ${task_name}  # Name of the logging instance

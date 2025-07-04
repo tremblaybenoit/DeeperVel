@@ -14,6 +14,7 @@ def mse(pred, target):
     loss: torch.Tensor. MSE loss between prediction and target.
 
     """
+    breakpoint()
 
     # Compute MSE loss
     loss = torch.nanmean((pred - target)**2)

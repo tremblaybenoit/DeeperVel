@@ -48,10 +48,10 @@ class ResidualBlock(nn.Module):
         # Components
         self.conv1 = nn.Conv2d(n_filters, n_filters, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn1 = nn.BatchNorm2d(n_filters)
-        self.relu1 = instantiate(activation, _partial_=True) if activation else nn.ReLU()
+        self.relu1 = instantiate(activation) if activation else nn.ReLU()
         self.conv2 = nn.Conv2d(n_filters, n_filters, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn2 = nn.BatchNorm2d(n_filters)
-        self.relu2 = instantiate(activation, _partial_=True) if activation else nn.ReLU()
+        self.relu2 = instantiate(activation) if activation else nn.ReLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """ Pass forward through residual block.
@@ -103,7 +103,7 @@ class BaseModel(LightningModule):
         # Learning rate scheduler
         self.lr_scheduler = lr_scheduler
         # Loss function
-        self.loss_func = loss_func
+        self.loss_func = instantiate(loss_func)
         # Store hyperparameters
         self.save_hyperparameters(ignore=['optimizer', 'lr_scheduler', 'loss_func'])
 
@@ -132,6 +132,7 @@ class BaseModel(LightningModule):
 
         # Extract data from batch
         x, y = batch
+
         # Forward pass
         y_pred = self(x)
         # Compute loss function
@@ -353,11 +354,11 @@ class DeepVelModel(BaseModel):
         # Complete model
         self.model = nn.Sequential(
             nn.Conv2d(n_in_channels, n_filters, kernel_size=kernel_size, stride=stride, padding=padding),
-            instantiate(activation, _partial_=True) if activation else nn.ReLU(),
+            instantiate(activation) if activation else nn.ReLU(),
             *residuals,
             nn.Conv2d(n_filters, n_filters, kernel_size=kernel_size, stride=stride, padding=padding),
             nn.BatchNorm2d(n_filters),
-            nn.Conv2d(n_filters, n_out_channels, kernel_size=1, stride=stride, padding=padding))
+            nn.Conv2d(n_filters, n_out_channels, kernel_size=kernel_size, stride=stride, padding=padding))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """ Pass forward through neural network architecture.

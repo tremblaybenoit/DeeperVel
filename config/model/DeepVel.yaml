@@ -1,12 +1,14 @@
 # Model module
 _target_: track.model.model.DeepVelModel
+_recursive_: False  # Do not recursively instantiate
+n_in_channels: 10
+n_out_channels: 2
 n_conv_layers: 20
 n_filters: 64
 kernel_size: 3
 stride: 1
 activation:
-  _target_: torch.nn.ReLU()  # Activation function
-  _partial_: True  # Partial initialization
+  _target_: torch.nn.ReLU  # Activation function
 
 # Optimizer
 optimizer:

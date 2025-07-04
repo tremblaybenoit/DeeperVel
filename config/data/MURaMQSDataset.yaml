@@ -124,9 +124,9 @@ loader:
   # Split
   split:
     # Number of samples to use for training
-    train: 750
+    train: 2560
     # Number of samples to use for validation
-    valid: 250
+    valid: 640
     # Number of samples to use for testing (0 = use all remaining data, excluding train and valid patches)
     test: 0
     # Batch size when training
