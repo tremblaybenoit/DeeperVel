@@ -22,3 +22,8 @@ task_seed: 3110  # For reproducibility
 paths:
   run_id: "DeepVel_000"  # Run ID
   task_dir: "../tracking_outputs"  # Task directory
+
+# Trainer configuration
+trainer:
+  min_epochs: 1  # To prevent early stopping
+  max_epochs: 32  # Number of epochs

@@ -23,7 +23,7 @@ def get_item(args):
 
 def load_all(ds):
     with ProcessPoolExecutor() as executor:
-        return list(executor.map(get_item, [(ds, i) for i in range(len(ds))]))
+        return list(tqdm(executor.map(get_item, [(ds, i) for i in range(len(ds))]), total=len(ds), desc="Loading dataset"))
 
 
 class BaseDataModule(lightning.LightningDataModule):
