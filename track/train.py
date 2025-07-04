@@ -9,7 +9,8 @@ from track.data.process import postprocess
 from track.utilities.instantiators import instantiate, instantiate_list
 from track.utilities.logic import get_config_path
 from track.utilities.logger import TrainerLogger
-torch.set_float32_matmul_precision('high')
+torch.set_default_dtype(torch.float64)
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)

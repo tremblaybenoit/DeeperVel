@@ -1,4 +1,5 @@
 defaults:
   - model_checkpoint
-  # - image_prediction
+  - early_stopping
+  # - figure_logger
   - _self_

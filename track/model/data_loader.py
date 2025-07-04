@@ -702,8 +702,14 @@ class MultiDataset(Dataset):
         # Apply augmentation if specified
         if self.augment:
             combinations = [
-                (0, None), (1, None), (2, None), (3, None),
-                (0, 0), (0, 1), (1, 0), (1, 1),
+                (0, 0),  # identity
+                (1, 0),  # rot90
+                (2, 0),  # rot180
+                (3, 0),  # rot270
+                (0, 0),  # flip x
+                (0, 1),  # flip y
+                (1, 0),  # rot90 + flip x
+                (1, 1),  # rot90 + flip y
             ]
             n_flip, n_rot90 = combinations[np.random.randint(0, 8)]
             axes_rot90 = (0, 1)
