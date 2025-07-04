@@ -9,10 +9,21 @@ from track.utilities.instantiators import instantiate
 from track.data.process import preprocess, postprocess
 import logging
 from track.data.transformations import geometric_augmentation
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
 
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+
+
+def get_item(args):
+    ds, i = args
+    return ds[i]
+
+def load_all(ds):
+    with ProcessPoolExecutor() as executor:
+        return list(executor.map(get_item, [(ds, i) for i in range(len(ds))]))
 
 
 class BaseDataModule(lightning.LightningDataModule):
@@ -186,11 +197,13 @@ class LazyDataModule(BaseDataModule):
                 key: var[self.ds_split.train:self.ds_split.train + self.ds_split.valid]
                 if isinstance(var, list) else var for key, var in patches.items()
             }
-            self.ds_train = MultiLazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+            logger.info(f"Loading training set samples")
+            self.ds_train = MultiDataset(self.ds_input, output=self.ds_output, augment=self.augment,
                                         scaling=self.scaling, transform=self.transform, x_min=patches_train['x_min'],
                                         nx=patches_train['nx'], y_min=patches_train['y_min'], ny=patches_train['ny'],
                                         t=patches_train['t'])
-            self.ds_valid = MultiLazyDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+            logger.info(f"Loading validation set samples")
+            self.ds_valid = MultiDataset(self.ds_input, output=self.ds_output, augment=self.augment,
                                         scaling=self.scaling, transform=self.transform, x_min=patches_valid['x_min'],
                                         nx=patches_valid['nx'], y_min=patches_valid['y_min'], ny=patches_valid['ny'],
                                         t=patches_valid['t'])
@@ -204,18 +217,18 @@ class LazyDataModule(BaseDataModule):
                     key: var[self.ds_split.train+self.ds_split.valid:self.ds_split.train+self.ds_split.valid+self.ds_split.test]
                     if isinstance(var, list) else var for key, var in patches.items()
                 }
-                self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
+                self.ds_test = MultiDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
                                            transform=self.transform, x_min=patches_test['x_min'],
                                            nx=patches_test['nx'], y_min=patches_test['y_min'], ny=patches_test['ny'],
                                            t=patches_test['t'])
             else:
                 # Use all available data
-                self.ds_test = LazyDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
+                self.ds_test = MultiDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
                                            transform=self.transform)
 
         # Prediction dataset
         elif stage == "predict":
-            self.ds_pred = LazyDataset(self.ds_input, scaling=self.scaling, transform=self.transform)
+            self.ds_pred = MultiDataset(self.ds_input, scaling=self.scaling, transform=self.transform)
 
     def predict(self, input: DictConfig, patches: Dict = None) -> None:
         """ Load prediction dataset.
@@ -341,7 +354,7 @@ class BaseDataset(Dataset):
         """
 
         # Extract radiance data at specified index
-        return np.stack([
+        return np.concatenate([
             np.stack([
                 preprocess(data[:, :, s_idx, :, v_idx], self.vars[var],
                            self.stats[s][var], scaling=scaling, transform=transform)
@@ -377,7 +390,7 @@ class BaseDataset(Dataset):
 
         # Read data
         data = self.io.read(self.t[item], self.slices, list(self.vars.keys()), nx=self.nx, ny=self.ny,
-                            x_min=self.x_min[item], y_min=self.y_min[item])
+                            x_min=self.x_min[item], y_min=self.y_min[item], num_workers=1)
 
         # Apply transformations
         if self.scaling or self.transform:
@@ -584,10 +597,10 @@ class MultiLazyDataset(Dataset):
                 n_flip, n_rot90 = combinations[np.random.randint(0, 8)]
                 axes_rot90 = (0, 1)
                 # Apply augmentation to input and output data
-                input_data = [geometric_augmentation(data, ds.vars.keys(), n_flip=n_flip, n_rot90=n_rot90,
+                input_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90,
                                                      axes_rot90=axes_rot90)
                               for ds, data in zip(self.inputs, input_data)]
-                output_data = [geometric_augmentation(data, ds.vars.keys(), n_flip=n_flip, n_rot90=n_rot90,
+                output_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90,
                                                       axes_rot90=axes_rot90)
                                for ds, data in zip(self.outputs, output_data)]
         else:
@@ -610,5 +623,106 @@ class MultiLazyDataset(Dataset):
 
             return input_combined, output_combined
         # If no output data is available, return only input data
+        else:
+            return input_combined
+
+
+class MultiDataset(Dataset):
+    def __init__(self, input: ListConfig, output: ListConfig = None, scaling: bool = False,
+                 transform: bool = False, augment: bool = False, t: Union[list, int] = None,
+                 x_min: Union[list, int] = None, nx: Union[list, int] = None, y_min: Union[list, int] = None,
+                 ny: Union[list, int] = None) -> None:
+        """ Loads and transforms paired data samples into memory.
+
+            Parameters
+            ----------
+            input: ListConfig. List of input data configurations.
+            output: ListConfig, optional. List of output data configurations, by default None.
+            scaling: bool, optional. Apply scaling, by default False.
+            transform: bool, optional. Apply transformations, by default False.
+            augment: bool, optional. Apply data augmentation, by default False.
+            t: list or int, optional. List of timesteps to read, by default None.
+            x_min: list or int, optional. Minimum x-coordinate, by default None.
+            nx: list or int, optional. Width of the patch, by default None.
+            y_min: list or int, optional. Minimum y-coordinate, by default None.
+            ny: list or int, optional. Height of the patch, by default None.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Class inheritance
+        super().__init__()
+
+        # Read input variables, slices, and timesteps
+        self.inputs = [BaseDataset(cfg, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny) for cfg in input]
+        self.outputs = [BaseDataset(cfg, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny) for cfg in output] if output is not None else None
+        # Transformations and scaling
+        self.scaling = scaling
+        self.transform = transform
+        self.augment = augment
+
+        # Read all data into memory
+        # self.input_data = [[ds[i] for i in range(len(ds))] for ds in self.inputs]
+        # self.output_data = [[ds[i] for i in range(len(ds))] for ds in self.outputs] if self.outputs is not None else None
+        self.input_data = [load_all(ds) for ds in tqdm(self.inputs)]
+        self.output_data = [load_all(ds) for ds in tqdm(self.outputs)] if self.outputs is not None else None
+        self.length = len(self.input_data)
+
+    def __len__(self) -> int:
+        """ Get the length of the dataset.
+
+            Parameters
+            ----------
+            None.
+
+            Returns
+            -------
+            int: Length of the dataset.
+        """
+        return self.length
+
+    def __getitem__(self, item: int) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """ Get data and apply transformations.
+
+            Parameters
+            ----------
+            item: int. Index of item to read.
+
+            Returns
+            -------
+            Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]: Input data, and optionally output data.
+        """
+
+        # Extract data from memory
+        input_data = [data[item] for data in self.input_data]
+        output_data = [data[item] for data in self.output_data] if self.output_data is not None else None
+
+        # Apply augmentation if specified
+        if self.augment:
+            combinations = [
+                (0, None), (1, None), (2, None), (3, None),
+                (0, 0), (0, 1), (1, 0), (1, 1),
+            ]
+            n_flip, n_rot90 = combinations[np.random.randint(0, 8)]
+            axes_rot90 = (0, 1)
+            input_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                          for ds, data in zip(self.inputs, input_data)]
+            if output_data is not None:
+                output_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                               for ds, data in zip(self.outputs, output_data)]
+
+        # Apply scaling/transform if specified
+        if self.scaling or self.transform:
+            input_data = [ds.preprocess(data, scaling=self.scaling, transform=self.transform) for ds, data in zip(self.inputs, input_data)]
+            if output_data is not None:
+                output_data = [ds.preprocess(data, scaling=self.scaling, transform=self.transform) for ds, data in zip(self.outputs, output_data)]
+
+        # Combine input and output data into a single array
+        input_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.inputs, input_data)], axis=-1)
+        if output_data is not None:
+            output_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.outputs, output_data)], axis=-1)
+            return input_combined, output_combined
         else:
             return input_combined

@@ -365,10 +365,7 @@ class MURaMQSDataset:
         y_max = [y + ny for y in y_min]
 
         # Create iterables based on lengths of coordinates
-        if len(iters) == len(x_min):
-            coordinates = zip((x_min, x_max, y_min, y_max), iters)
-        else:
-            coordinates = list(itertools.product(zip(x_min, x_max, y_min, y_max), iters))
+        coordinates = list(itertools.product(zip(x_min, x_max, y_min, y_max), iters))
         iterables = list(itertools.product(coordinates, slices, vars))
         # args = [(i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
         args = [(self.nx, self.ny, i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
@@ -377,10 +374,14 @@ class MURaMQSDataset:
         if num_workers is None:
             num_workers = os.cpu_count() // 2
 
-        # Process data in parallel
-        with Pool(num_workers) as p:
-            data = np.stack(list(p.starmap(read_MURaMQS_var, args)), axis=0)
-            # data = np.stack(list(tqdm(p.starmap(self.read_var, args), total=len(args))), axis=0)
+        # If the number of workers is 1 or less than 8, read directly without multiprocessing
+        if len(args) < 8 or num_workers == 1:
+            # Read directly without the multiprocessing
+            data = np.stack([read_MURaMQS_var(*a) for a in args], axis=0)
+        # Otherwise, read in parallel
+        else:
+            with Pool(num_workers) as p:
+                data = np.stack(list(p.starmap(read_MURaMQS_var, args)), axis=0)
 
         # Reshape data to (ny, nx, n_slices, n_iters, n_vars)
         data = (data.reshape(len(coordinates), len(slices), len(vars), ny, nx)).transpose(3, 4, 1, 0, 2)
