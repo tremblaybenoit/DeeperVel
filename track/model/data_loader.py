@@ -702,16 +702,16 @@ class MultiDataset(Dataset):
         # Apply augmentation if specified
         if self.augment:
             combinations = [
-                (0, 0),  # identity
-                (1, 0),  # rot90
-                (2, 0),  # rot180
-                (3, 0),  # rot270
+                (0, None),  # identity
+                (1, None),  # rot90
+                (2, None),  # rot180
+                (3, None),  # rot270
                 (0, 0),  # flip x
                 (0, 1),  # flip y
                 (1, 0),  # rot90 + flip x
                 (1, 1),  # rot90 + flip y
             ]
-            n_flip, n_rot90 = combinations[np.random.randint(0, 8)]
+            n_rot90, n_flip = combinations[np.random.randint(0, 8)]
             axes_rot90 = (0, 1)
             input_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
                           for ds, data in zip(self.inputs, input_data)]
