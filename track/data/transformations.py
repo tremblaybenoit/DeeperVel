@@ -228,17 +228,16 @@ def rot90(data: Union[np.ndarray, torch.Tensor], n: int = 1, axes: Union[int, tu
         data_transform: arr or tensor. Rotated dataset.
     """
 
-    # Change direction of rotation
-    if inverse_transform:
-        n = -n
+    # For Cartesian: positive n_rot90 means CW
+    k = -n if not inverse_transform else n
 
     # Apply rotation
     if isinstance(data, np.ndarray):
         # Numpy
-        data_transform = np.rot90(data, k=n, axes=axes)
+        data_transform = np.rot90(data, k=k, axes=axes)
     elif isinstance(data, torch.Tensor):
         # Torch
-        data_transform = torch.rot90(data, k=n, dims=axes)
+        data_transform = torch.rot90(data, k=k, dims=axes)
     else:
         raise TypeError("Unsupported data type. Expected numpy array or torch tensor.")
 
@@ -325,26 +324,26 @@ def augment_vector(data_x: Union[np.ndarray, torch.Tensor], data_y: Union[np.nda
     # Apply transformations for both x and y components.
     # Account for the changes in sign, and the fact that the x and y components are swapped
     # when rotating by 90 degrees.
-    data_transform_x = flip(data_x, n=n_flip, inverse_transform=inverse_transform)
-    data_transform_y = flip(data_y, n=n_flip, inverse_transform=inverse_transform)
     # Account for sign changes
     if n_flip is not None:
+        data_x = flip(data_x, n=n_flip, inverse_transform=inverse_transform)
+        data_y = flip(data_y, n=n_flip, inverse_transform=inverse_transform)
         if n_flip == 0:
-            data_transform_x = -data_transform_x
+            data_y = -data_y
         elif n_flip == 1:
-            data_transform_y = -data_transform_y
-    # Apply rotation and account for the swapping of x and y components
-    if n_rot90 == 1:
-        data_transform_x, data_transform_y = (-rot90(data_transform_y, n=n_rot90, axes=axes_rot90),
-                                              rot90(data_transform_x, n=n_rot90, axes=axes_rot90))
-    elif n_rot90 == 2:
-        data_transform_x, data_transform_y = (-rot90(data_transform_x, n=n_rot90, axes=axes_rot90),
-                                              -rot90(data_transform_y, n=n_rot90, axes=axes_rot90))
-    elif n_rot90 == 3:
-        data_transform_x, data_transform_y = (rot90(data_transform_y, n=n_rot90, axes=axes_rot90),
-                                              -rot90(data_transform_x, n=n_rot90, axes=axes_rot90))
+            data_x = -data_x
 
-    return data_transform_x, data_transform_y
+    # Apply rotation and account for the swapping of x and y components
+    if n_rot90 == 0:
+        return data_x, data_y
+    elif n_rot90 == 1:
+        return -rot90(data_y, n=n_rot90, axes=axes_rot90), rot90(data_x, n=n_rot90, axes=axes_rot90)
+    elif n_rot90 == 2:
+        return -rot90(data_x, n=n_rot90, axes=axes_rot90), -rot90(data_y, n=n_rot90, axes=axes_rot90)
+    elif n_rot90 == 3:
+        return rot90(data_y, n=n_rot90, axes=axes_rot90), -rot90(data_x, n=n_rot90, axes=axes_rot90)
+    else:
+        raise ValueError(f"Unsupported number of rotations: {n_rot90}. Must be in [0, 3].")
 
 def geometric_augmentation(data: Union[np.ndarray, torch.Tensor, tuple[np.ndarray, np.ndarray], tuple[torch.Tensor, torch.Tensor]],
                            vars: list[str], n_rot90: int = 0, axes_rot90: Union[int, tuple[int, int]] = 1, n_flip: int = None) \
@@ -365,17 +364,17 @@ def geometric_augmentation(data: Union[np.ndarray, torch.Tensor, tuple[np.ndarra
     """
 
     # Copy data to avoid in-place modification
-    data = data.copy()
+    data_aug = data.copy()
 
     # Vector augmentation
     for vpair in [("vx", "vy"), ("Bx", "By")]:
         if all(v in vars for v in vpair):
             idx_x, idx_y = vars.index(vpair[0]), vars.index(vpair[1])
-            data[..., idx_x], data[..., idx_y] = augment_vector(data[..., idx_x], data[..., idx_y],
-                                                                n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+            data_aug[..., idx_x], data_aug[..., idx_y] = augment_vector(data[..., idx_x], data[..., idx_y],
+                                                                        n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
     # Scalar augmentation
     for scalar in ["I500", "vz", "Bz"]:
         if scalar in vars:
             idx = vars.index(scalar)
-            data[..., idx] = augment_scalar(data[..., idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
-    return data
+            data_aug[..., idx] = augment_scalar(data[..., idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+    return data_aug
