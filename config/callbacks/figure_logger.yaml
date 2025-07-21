@@ -1,2 +1,2 @@
 image_prediction:
-  _target_: retrieval.model.callback.ImagePredictionLogger
+  _target_: track.model.callback.FigureLogger
