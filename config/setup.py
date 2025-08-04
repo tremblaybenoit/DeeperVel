@@ -45,10 +45,9 @@ def check_key_in_dict(key, dictionary):
     return key in dictionary
 
 
-def read_hydra_as_dict(config_path, config_name, version_base=None,
-                       experiment=None, return_hydra_config=True,
-                       verbose=False
-                       ):
+
+def read_hydra_as_dict(config_path, config_name, version_base=None, overrides=None, return_hydra_config=True,
+                       verbose=False):
     """ Read complete Hydra configuration and return as dictionnary.
 
         Parameters
@@ -56,7 +55,7 @@ def read_hydra_as_dict(config_path, config_name, version_base=None,
         config_path: str. Directory containing hydra config file.
         config_name: str. Config filename.
         version_base: float; default=None. Version number.
-        experiment: str; default=None. Experiment overriding the hydra config file contents.
+        overrides: str; default=None. Experiment overriding the hydra config file contents.
         return_hydra_config: bool; default=True. Whether to extract hydra config.
         verbose: bool; default=False. Flag to print config file contents.
 
@@ -68,9 +67,9 @@ def read_hydra_as_dict(config_path, config_name, version_base=None,
     # Manually initialize Hydra and compose the configuration
     with initialize(version_base=version_base, config_path=config_path):
 
-        if experiment is not None:
+        if overrides is not None:
             config = compose(config_name=config_name,
-                             overrides=[f"+experiment={experiment}"],
+                             overrides=[overrides],
                              return_hydra_config=return_hydra_config)
         else:
             config = compose(config_name=config_name,
@@ -96,7 +95,8 @@ def read_hydra_as_dict(config_path, config_name, version_base=None,
 
         return config_dict
 
-def setup_directories_from_hydra(config_path, config_name, experiment=None, verbose=False):
+
+def setup_directories_from_hydra(config_path, config_name, overrides=None, verbose=False):
     """
     Reads the Hydra configuration, extracts the paths, and creates the necessary directories.
 
@@ -104,7 +104,7 @@ def setup_directories_from_hydra(config_path, config_name, experiment=None, verb
     ----------
     config_path : str. Path to the Hydra configuration folder.
     config_name : str. Name of the configuration file.
-    experiment : str, optional. Experiment to override in the configuration.
+    overrides : str, optional. Experiment to override in the configuration.
     verbose : bool, optional. Prints the configuration if True.
 
     Returns
@@ -116,7 +116,7 @@ def setup_directories_from_hydra(config_path, config_name, experiment=None, verb
     hydra_config = read_hydra_as_dict(
         config_path=config_path,
         config_name=config_name,
-        experiment=experiment,
+        overrides=overrides,
         verbose=verbose
     )
     paths_config = hydra_config['paths']
@@ -133,7 +133,7 @@ def setup_directories_from_hydra(config_path, config_name, experiment=None, verb
 
 
 if __name__ == "__main__":
-    """ Read complete Hydra configuration and create needed directories.
+    """ Read complete Hydra configuration and build directory dependencies.
 
         Parameters
         ----------
@@ -143,7 +143,7 @@ if __name__ == "__main__":
 
         Returns
         -------
-        directiories.
+        config_as_dict: Dictionnary containing all configs.
     """
 
     parser = argparse.ArgumentParser()
@@ -151,11 +151,11 @@ if __name__ == "__main__":
                         help='Path to configuration file containing all model hyperparameters.')
     parser.add_argument('-config_name', type=str, default="default",
                         help='Name of the configuration file containing all model hyperparameters.')
-    parser.add_argument('-experiment', type=str, default=None,
+    parser.add_argument('-overrides', type=str, default=None,
                         help='Name of the experiment that overrides the main hydra configuration.')
     parser.add_argument('-verbose', type=bool, default=False,
                         help='Flag to print the configuration file contents.')
     args = parser.parse_args()
 
     # Setup directories from Hydra configuration
-    setup_directories_from_hydra(args.config_path, args.config_name, args.experiment, verbose=args.verbose)
+    setup_directories_from_hydra(args.config_path, args.config_name, args.overrides, verbose=args.verbose)

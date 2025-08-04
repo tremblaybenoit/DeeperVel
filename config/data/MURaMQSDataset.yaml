@@ -1,6 +1,5 @@
 # Data loader
 _recursive_: False
-# _target_: track.model.data_loader.LazyDataModule
 
 # Dataset
 dataset:
@@ -93,22 +92,22 @@ loader:
     - dataset: ${data.dataset.yz}
       # Variables
       variables:
-        Bx: ${data.dataset.yz.variables.Bx}
-        By: ${data.dataset.yz.variables.By}
-        Bz: ${data.dataset.yz.variables.Bz}
+        # vx: ${data.dataset.yz.variables.vx}
+        # vy: ${data.dataset.yz.variables.vy}
+        # Bz: ${data.dataset.yz.variables.Bz}
         vz: ${data.dataset.yz.variables.vz}
       # Heights
-      slices: [0]
+      slices: [384]
       # Time steps
       dt: [0, 1]
-    - dataset: ${data.dataset.I500}
-      # Variables
-      variables:
-        I500: ${data.dataset.I500.variables.I500}
-      # Heights
-      slices: [0]
-      # Time steps
-      dt: [0, 1]
+    # - dataset: ${data.dataset.I500}
+    #   # Variables
+    #   variables:
+    #     I500: ${data.dataset.I500.variables.I500}
+    #   # Heights
+    #   slices: [0]
+    #   # Time steps
+    #   dt: [0, 1]
   # Output data
   output:
     # Dataset
@@ -118,7 +117,7 @@ loader:
         vx: ${data.dataset.yz.variables.vx}
         vy: ${data.dataset.yz.variables.vy}
       # Heights
-      slices: [0]
+      slices: [384]
       # Time steps
       dt: [0]
   # Split
@@ -134,8 +133,7 @@ loader:
     # Patches to use for training
     patches: ${data.preparation.colocate.output.patches.path}
   # Apply geometric augmentation in the x/y plane
-  augment: false
-
+  augment: true
 
 # Preparation steps
 preparation:
@@ -179,7 +177,7 @@ preparation:
       # Patches
       patches:
         # Path
-        path: ${paths.checkpoint_dir}/patches.pkl
+        path: ${paths.task_dir}/patches.pkl
         type: "file"
 
 

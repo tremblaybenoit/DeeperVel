@@ -10,6 +10,7 @@ import mpl_scatter_density
 from matplotlib.ticker import ScalarFormatter
 from track.data.transformations import geometric_augmentation
 import os
+matplotlib.use('Agg')
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
@@ -196,7 +197,7 @@ def scatterplot(fig, ax, x, y, font_size=13, projection=None, title='Scatterplot
                 x_range: tuple=None, y_range: tuple=None, x_nticks=6, y_nticks=6, tickw=1, tickl=2.5, tickdir='out',
                 marker='.', markersize=0.9, grid=True, grid_linew=0.5, x_ascale='linear', y_ascale='linear',
                 ref_label='Reference (1:1)', ref_color='black', ref_linew=0.5, ref_lines='--',
-                fit=None, fit_color=None, fit_linew=0.25, fit_lines='-',
+                fit=False, fit_color=None, fit_linew=0.25, fit_lines='-',
                 lg_loc='upper left', lg_font=10, lg_ncol=1, lg_npoints=1, lg_scale=4.0, lg_spacing=0.05,
                 cb_label='Density', cb_size=0.2, cb_ticks=5, cb_axis="y", cb_pad=0, cb_tickw=1,
                 cb_tickl=2.5, cb_dir='out', cb_rot=270, cb_labelpad=16, cb_side='right'):
@@ -508,12 +509,49 @@ def fig_scatterplots(target: np.ndarray, pred: np.ndarray, title_prefix: str = '
     fig, get_axes = flexible_gridspec(list_cols, cell_width=4, cell_height=4)
 
     # Loop over variables
-    for v in tqdm(range(n_channels), desc="Plotting scatterplots"):
+    for v in range(n_channels):
         ax = get_axes(v // n_cols, v % n_cols)
         # Create scatterplot
         scatterplot(fig, ax, target[:, :, :, v].flatten(), pred[:, :, :, v].flatten(),
-                    title=f"{title_prefix} - Variable {v}",
-                    x_label='Target', y_label='Prediction')
+                    title=f"{title_prefix} - Variable {v}", fit=True,
+                    x_label='Target', y_label='Prediction', projection='scatter_density')
+
+    return fig
+
+
+def fig_patches(target: np.ndarray, pred: np.ndarray, title_prefix: str = '', img_range: tuple = (-4, 4)):
+    """ Create a figure with patches of target and prediction.
+
+    Parameters
+    ----------
+    target : numpy.ndarray. Target data.
+    pred : numpy.ndarray. Predicted data.
+    title_prefix : str. Prefix for the title.
+
+    Returns
+    -------
+    None.
+    """
+
+    # Dimensions
+    n_samples, ny, nx, n_channels = target.shape
+
+    # Create a flexible gridspec
+    # From n_profiles, determine optimal layout for flexible_gridspec
+    n_rows = 2  # int(np.ceil(np.sqrt(n_channels)))
+    n_cols = n_channels
+    # Create a flexible gridspec
+    list_cols = [n_cols for _ in range(n_rows)]
+    fig, get_axes = flexible_gridspec(list_cols, cell_width=4, cell_height=4)
+
+    # Loop over variables
+    for v in range(n_channels):
+
+        ax0 = get_axes(0, v)
+        # Plot target and prediction patches
+        plot_map(ax0, target[0, :, :, v], img_pixel=(0.016, 0.016), img_range=img_range, title=f"{title_prefix} - Target Variable {v}")
+        ax1 = get_axes(1, v)
+        plot_map(ax1, pred[0, :, :, v], img_pixel=(0.016, 0.016), img_range=img_range, title=f"{title_prefix} - Prediction Variable {v}")
 
     return fig
 
@@ -522,9 +560,9 @@ if __name__ == "__main__":
 
     ex_path = "E:\\Data\\ISSI_Team_Flows\\Matthias\\SSD_25x8Mm_16_pdmp_1_ISSI_Flows\\2D"  # os.path.abspath("../E/Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D/")
     ex_slice_type = 'yz'
-    ex_slice = [400]  # [192, 400]
+    ex_slice = [384]  # [192, 400]
     ex_iter = [1]  # [0, 3900, 4200]
-    ex_vars = ['I500', 'vx', 'vy', 'vz']  # ['I500', 'vx', 'vy', 'vz', 'Bx', 'By', 'Bz']
+    ex_vars = ['I500', 'vx', 'vy', 'vz', 'Bx', 'By', 'Bz']
     ex_x_min, nx, ex_y_min, ny = 256, 96, 256, 96
 
     # Initialize the dataset
@@ -537,7 +575,8 @@ if __name__ == "__main__":
     vx = data1[:, :, 0, 0, 1]
     vy = data1[:, :, 0, 0, 2]
     vz = data1[:, :, 0, 0, 3]
-    ic = data1[:, :, 0, 0, 0]/np.std(data1[:, :, 0, 0, 0])
+    ic = data1[:, :, 0, 0, 0]/np.median(data1[:, :, 0, 0, 0])
+    # breakpoint()
     # bz = data1[0, :, :, 0, 1]
     # Make a perturbed version of bz
     # ic2 = (100+0.1 * np.random.randn(*ic.shape))*ic
@@ -578,6 +617,9 @@ if __name__ == "__main__":
     plot_map(ax0, vz, img_range=(-8, 8), img_pixel=img_pixel, vec=(vx, vy), vec_step=2, vec_scale=vec_scale,
              vec_width=vec_width)
     save_plot(figure0, filename='vector_plotting_example.png')
+    plot_map(ax0, ic, img_range=(-8, 8), img_pixel=img_pixel, vec=(vx, vy), vec_step=2, vec_scale=vec_scale,
+             vec_width=vec_width)
+    save_plot(figure0, filename='vector_plotting_example2.png')
 
     # exit()
 
@@ -602,7 +644,7 @@ if __name__ == "__main__":
         # Apply transformations
         img = np.stack([ic, vx, vy, vz], axis=-1)
         print(i, np.amin(vx), np.amax(vx), np.amin(vy), np.amax(vy))
-        img_aug = geometric_augmentation(img, ex_vars, n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
+        img_aug = geometric_augmentation(img, ex_vars[0:4], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
         # Plot the first variable (ic) with the augmentation
         plot_map(ax1, img_aug[..., 0], img_pixel=img_pixel, title=f"Augmentation {i}: flip={n_flip}, rot90={n_rot90}")
 
@@ -615,7 +657,7 @@ if __name__ == "__main__":
         # Apply transformations
         img = np.stack([ic, vx, vy, vz], axis=-1)
         print(i, np.amin(vx), np.amax(vx), np.amin(vy), np.amax(vy))
-        img_aug = geometric_augmentation(img, ex_vars, n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
+        img_aug = geometric_augmentation(img, ex_vars[0:4], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
         # Plot the first variable (ic) with the augmentation
         plot_map(ax2, img_aug[..., 1], img_range=(-8, 8), img_pixel=img_pixel,
                  title=f"Augmentation {i}: flip={n_flip}, rot90={n_rot90}")
@@ -629,7 +671,7 @@ if __name__ == "__main__":
         # Apply transformations
         img = np.stack([ic, vx, vy, vz], axis=-1)
         print(i, np.amin(vx), np.amax(vx), np.amin(vy), np.amax(vy))
-        img_aug = geometric_augmentation(img, ex_vars, n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
+        img_aug = geometric_augmentation(img, ex_vars[0:4], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
         # Plot the first variable (ic) with the augmentation
         plot_map(ax3, img_aug[..., 2], img_range=(-8, 8), img_pixel=img_pixel,
                  title=f"Augmentation {i}: flip={n_flip}, rot90={n_rot90}")
@@ -643,7 +685,7 @@ if __name__ == "__main__":
         # Apply transformations
         img = np.stack([ic, vx, vy, vz], axis=-1)
         print(i, np.amin(vx), np.amax(vx), np.amin(vy), np.amax(vy))
-        img_aug = geometric_augmentation(img, ex_vars, n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
+        img_aug = geometric_augmentation(img, ex_vars[0:4], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
         # Plot the first variable (ic) with the augmentation
         plot_map(ax4, img_aug[..., 3], img_range=(-8, 8), img_pixel=img_pixel,
                  title=f"Augmentation {i}: flip={n_flip}, rot90={n_rot90}")
@@ -657,10 +699,25 @@ if __name__ == "__main__":
         # Apply transformations
         img = np.stack([ic, vx, vy, vz], axis=-1)
         print(i, np.amin(vx), np.amax(vx), np.amin(vy), np.amax(vy))
-        img_aug = geometric_augmentation(img, ex_vars, n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
+        img_aug = geometric_augmentation(img, ex_vars[0:4], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
         # Plot the first variable (ic) with the augmentation
         plot_map(ax5, img_aug[..., 0], img_pixel=img_pixel, vec=(img_aug[..., 1], img_aug[..., 2]),
                  vec_step=1, vec_scale=vec_scale, vec_width=vec_width,
                  title=f"Augmentation {i}: flip={n_flip}, rot90={n_rot90}")
 
     save_plot(figure5, filename='augmentation_example5.png')
+
+    figure5, get_axes5 = flexible_gridspec([4, 4])
+    for i, (n_rot90, n_flip) in enumerate(combinations):
+        print(i, i // 4, i % 4, n_rot90, n_flip)
+        ax5 = get_axes5(i // 4, i % 4)
+        # Apply transformations
+        img = np.stack([ic, vx, vy, vz], axis=-1)
+        print(i, np.amin(vx), np.amax(vx), np.amin(vy), np.amax(vy))
+        img_aug = geometric_augmentation(img, ex_vars[0:4], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=(0, 1))
+        # Plot the first variable (ic) with the augmentation
+        plot_map(ax5, img_aug[..., 3], img_pixel=img_pixel, vec=(img_aug[..., 1], img_aug[..., 2]),
+                 vec_step=1, vec_scale=vec_scale, vec_width=vec_width,
+                 title=f"Augmentation {i}: flip={n_flip}, rot90={n_rot90}")
+
+    save_plot(figure5, filename='augmentation_example6.png')

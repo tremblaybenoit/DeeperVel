@@ -31,7 +31,7 @@ def instantiate(config: Union[DictConfig, Callable], **kwargs):
         partial_flag = kwargs.get("_partial_", None)
 
         # If partial, return partially instantiated function/class
-        if partial_flag or (partial_flag is None and isinstance(config, partial)):
+        if partial_flag:
             return partial(config, **kwargs)
 
         # Otherwise, instantiate the callable class/function

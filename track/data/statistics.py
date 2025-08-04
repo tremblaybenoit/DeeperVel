@@ -159,8 +159,13 @@ def compute_statistics(config: DictConfig) -> None:
                 for vpair in [("vx", "vy"), ("Bx", "By")]:
                     if all(v in dataset.variables for v in vpair):
                         negatives = [
-                            {key: -value if key not in ["n_samples", "stdev", "variance"] else value
-                             for key, value in stats[s][v].items()}
+                            {"mean": -stats[s][v]["mean"],
+                             "stdev": stats[s][v]["stdev"],
+                             "min": -stats[s][v]["max"],
+                             "max": -stats[s][v]["min"],
+                             "median": -stats[s][v]["median"],
+                             "variance": stats[s][v]["variance"],
+                             "n_samples": stats[s][v]["n_samples"]}
                             for v in vpair
                         ]
                         combined_stats = combine_statistics([stats[s][vpair[0]], stats[s][vpair[1]], *negatives])

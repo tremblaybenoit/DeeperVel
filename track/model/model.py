@@ -26,7 +26,7 @@ def same_padding(kernel_size: int, stride: int) -> int:
 class ResidualBlock(nn.Module):
     """Residual block for neural network architecture."""
     def __init__(self, n_filters: int = 64, kernel_size: int = 3, stride: int = 1, padding: int = 1,
-                 activation: DictConfig = None) -> None:
+                 activation: Callable = None) -> None:
         """ Initialize residual block.
 
             Parameters
@@ -79,15 +79,15 @@ class ResidualBlock(nn.Module):
 
 class BaseModel(LightningModule):
 
-    def __init__(self, optimizer: DictConfig = None, lr_scheduler: DictConfig = None,
+    def __init__(self, optimizer: Callable = None, lr_scheduler: Callable = None,
                  loss_func: Callable = None, log_valid: bool = False) \
             -> None:
         """ Initialize the base neural network model. Enables class inheritance.
 
             Parameters
             ----------
-            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
-            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            optimizer: Callable. Choice of optimizer and corresponding parameters.
+            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
             loss_func: Callable. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
@@ -98,12 +98,13 @@ class BaseModel(LightningModule):
 
         # Class inheritance
         super().__init__()
+
         # Optimizer initialization
         self.optimizer = optimizer
         # Learning rate scheduler
         self.lr_scheduler = lr_scheduler
         # Loss function
-        self.loss_func = instantiate(loss_func)
+        self.loss_func = loss_func
         # Store hyperparameters
         self.save_hyperparameters(ignore=['optimizer', 'lr_scheduler', 'loss_func'])
 
@@ -141,7 +142,7 @@ class BaseModel(LightningModule):
         # Compute metrics (for diagnostic purposes)
         epsilon = sys.float_info.min
         # Mean relative absolute error
-        rae = torch.nanmean(torch.abs((y - y_pred) / (torch.abs(y) + epsilon)) * 100)
+        rae = torch.nanmedian(torch.abs((y - y_pred) / (torch.abs(y) + epsilon)) * 100)
         # Mean absolute error
         mae = torch.nanmean(torch.abs(y - y_pred))
 
@@ -286,13 +287,13 @@ class BaseModel(LightningModule):
         if self.optimizer is not None:
 
             # Instantiate optimizer
-            optimizer = instantiate(self.optimizer, _partial_=False, params=self.parameters())
+            optimizer = instantiate(self.optimizer, params=self.parameters())
 
             # Check if learning rate scheduler is defined
             if self.lr_scheduler is not None:
 
                 # Instantiate learning rate scheduler
-                lr_scheduler = instantiate(self.lr_scheduler, _partial_=False, optimizer=optimizer)
+                lr_scheduler = instantiate(self.lr_scheduler, optimizer=optimizer)
 
                 # Check if the learning rate scheduler is specifically reducing on plateau
                 reduce_on_plateau = isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau)
@@ -316,8 +317,8 @@ class DeepVelModel(BaseModel):
     DeepVel neural network model (Asensio Ramos et al., 2017).
     """
     def __init__(self, n_in_channels: int, n_out_channels: int, n_filters: int = 64, kernel_size: int = 3,
-                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: DictConfig = None,
-                 optimizer: DictConfig = None, lr_scheduler: DictConfig = None, loss_func: Callable = None,
+                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: Callable = None,
+                 optimizer: Callable = None, lr_scheduler: Callable = None, loss_func: Callable = None,
                  log_valid: bool = False) -> None:
         """ Initialize DeepVel neural network model.
 
@@ -330,9 +331,9 @@ class DeepVelModel(BaseModel):
             n_conv_layers: int. Number of convolutional layers in residual block.
             stride: int. Stride of the convolutional layers.
             padding: int. Padding for the convolutional layers.
-            activation: DictConfig. Activation function of the convolutional layers.
-            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
-            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            activation: Callable. Activation function of the convolutional layers.
+            optimizer: Callable. Choice of optimizer and corresponding parameters.
+            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
             loss_func: Callable. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
@@ -379,8 +380,8 @@ class DeepVelUModel(BaseModel):
     DeepVelU neural network model (Tremblay & Attié, 2020).
     """
     def __init__(self, n_in_channels: int, n_out_channels: int, n_filters: int = 64, kernel_size: int = 3,
-                 depth: int = 3, dropout: float = 0.5, activation: DictConfig = None, optimizer: DictConfig = None,
-                 lr_scheduler: DictConfig = None, loss_func: Callable = None, log_valid: bool = False) -> None:
+                 depth: int = 3, dropout: float = 0.5, activation: Callable = None, optimizer: Callable = None,
+                 lr_scheduler: Callable = None, loss_func: Callable = None, log_valid: bool = False) -> None:
         """ Initialize DeepVelU neural network model.
 
             Parameters
@@ -391,9 +392,9 @@ class DeepVelUModel(BaseModel):
             kernel_size: int. Size of the convolutional kernel.
             depth: int. Depth of the U-Net architecture.
             dropout: float. Dropout rate for the convolutional layers.
-            activation: DictConfig. Activation function of the convolutional layers.
-            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
-            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            activation: Callable. Activation function of the convolutional layers.
+            optimizer: Callable. Choice of optimizer and corresponding parameters.
+            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
             loss_func: Callable. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
@@ -508,8 +509,8 @@ class DeeperVelModel(BaseModel):
     DeeperVel neural network model (Tremblay & Rempel, in prep.).
     """
     def __init__(self, n_in_channels: int, n_out_channels: int, n_filters: int = 64, kernel_size: int = 3,
-                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: DictConfig = None,
-                 optimizer: DictConfig = None, lr_scheduler: DictConfig = None, loss_func: Callable = None,
+                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: Callable = None,
+                 optimizer: Callable = None, lr_scheduler: Callable = None, loss_func: Callable = None,
                  log_valid: bool = False) -> None:
         """ Initialize DeeperVel neural network model.
 
@@ -522,9 +523,9 @@ class DeeperVelModel(BaseModel):
             n_conv_layers: int. Number of convolutional layers in residual block.
             stride: int. Stride of the convolutional layers.
             padding: int. Padding for the convolutional layers.
-            activation: DictConfig. Activation function of the convolutional layers.
-            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
-            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            activation: Callable. Activation function of the convolutional layers.
+            optimizer: Callable. Choice of optimizer and corresponding parameters.
+            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
             loss_func: Callable. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 

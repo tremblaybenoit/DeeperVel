@@ -20,10 +20,10 @@ task_seed: 3110  # For reproducibility
 
 # Paths
 paths:
-  run_id: "DeepVel_000"  # Run ID
+  run_id: "DeepVel_a_vz_to_vxvy"  # Run ID
   task_dir: "../tracking_outputs"  # Task directory
 
 # Trainer configuration
 trainer:
   min_epochs: 1  # To prevent early stopping
-  max_epochs: 32  # Number of epochs
+  max_epochs: 64  # Number of epochs

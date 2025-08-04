@@ -23,7 +23,11 @@ def get_item(args):
 
 def load_all(ds):
     with ProcessPoolExecutor() as executor:
-        return list(tqdm(executor.map(get_item, [(ds, i) for i in range(len(ds))]), total=len(ds), desc="Loading dataset"))
+        return list(tqdm(
+            executor.map(get_item, [(ds, i) for i in range(len(ds))], chunksize=32),
+            total=len(ds),
+            desc="Loading dataset"
+        ))
 
 
 class BaseDataModule(lightning.LightningDataModule):
@@ -136,6 +140,7 @@ class BaseDataModule(lightning.LightningDataModule):
 class LazyDataModule(BaseDataModule):
 
     def __init__(self, input: DictConfig, output: DictConfig, split: DictConfig = None, augment: bool = False,
+                 scaling: bool = True, transform: bool = True,
                  batch_size: int = 32, num_workers: int = None, pin_memory: bool = True, shuffle: bool = True) -> None:
         """ Loads paired data samples of radiances and thermodynamic profiles.
 
@@ -161,8 +166,8 @@ class LazyDataModule(BaseDataModule):
                          num_workers=num_workers, pin_memory=pin_memory, shuffle=shuffle)
 
         # Transformations and scaling
-        self.transform = True
-        self.scaling = True
+        self.transform = transform
+        self.scaling = scaling
         self.augment = augment
 
     def setup(self, stage: str = None) -> None:
@@ -203,7 +208,7 @@ class LazyDataModule(BaseDataModule):
                                         nx=patches_train['nx'], y_min=patches_train['y_min'], ny=patches_train['ny'],
                                         t=patches_train['t'])
             logger.info(f"Loading validation set samples")
-            self.ds_valid = MultiDataset(self.ds_input, output=self.ds_output, augment=self.augment,
+            self.ds_valid = MultiDataset(self.ds_input, output=self.ds_output,  # augment=self.augment,
                                         scaling=self.scaling, transform=self.transform, x_min=patches_valid['x_min'],
                                         nx=patches_valid['nx'], y_min=patches_valid['y_min'], ny=patches_valid['ny'],
                                         t=patches_valid['t'])
@@ -696,8 +701,8 @@ class MultiDataset(Dataset):
         """
 
         # Extract data from memory
-        input_data = [data[item] for data in self.input_data]
-        output_data = [data[item] for data in self.output_data] if self.output_data is not None else None
+        input_data = [data[item].astype('float64') for data in self.input_data]
+        output_data = [data[item].astype('float64') for data in self.output_data] if self.output_data is not None else None
 
         # Apply augmentation if specified
         if self.augment:
@@ -706,10 +711,10 @@ class MultiDataset(Dataset):
                 (1, None),  # rot90
                 (2, None),  # rot180
                 (3, None),  # rot270
-                (0, 0),  # flip x
-                (0, 1),  # flip y
-                (1, 0),  # rot90 + flip x
-                (1, 1),  # rot90 + flip y
+                (0, 1),  # flip x
+                (0, 0),  # flip y
+                (1, 1),  # rot90 + flip x
+                (1, 0),  # rot90 + flip y
             ]
             n_rot90, n_flip = combinations[np.random.randint(0, 8)]
             axes_rot90 = (0, 1)

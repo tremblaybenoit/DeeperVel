@@ -367,7 +367,6 @@ class MURaMQSDataset:
         # Create iterables based on lengths of coordinates
         coordinates = list(itertools.product(zip(x_min, x_max, y_min, y_max), iters))
         iterables = list(itertools.product(coordinates, slices, vars))
-        # args = [(i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
         args = [(self.nx, self.ny, i, s, v, x_min, x_max, y_min, y_max) for ((x_min, x_max, y_min, y_max), i), s, v in iterables]
 
         # Number of workers
