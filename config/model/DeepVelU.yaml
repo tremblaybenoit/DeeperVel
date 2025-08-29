@@ -1,0 +1,16 @@
+# Model module
+_target_: track.model.model.DeepVelUModel
+
+# Model architecture
+model:
+
+# Optimizer
+optimizer:
+  _target_: torch.optim.Adam  # Function
+  _partial_: True  # Partial function
+  lr: 1.e-3  # Learning rate
+
+# Loss term(s)
+loss_func:
+  _target_: track.model.loss.mse  # Load loss function
+  _partial_: True  # Partial function

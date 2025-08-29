@@ -1,0 +1,2 @@
+image_prediction:
+  _target_: track.model.callback.FigureLogger

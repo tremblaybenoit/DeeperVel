@@ -1,0 +1,30 @@
+# @package _global_
+# Experiment-specific Hydra structure
+
+# Overriding default structure
+defaults:
+  - override /data: MURaMQSDataset
+  - override /loader: default
+  - override /paths: default
+  - override /hydra: default
+  - override /model: DeepVel
+  - override /trainer: gpu
+  - override /callbacks: default
+  - override /logger: default
+
+# All parameters below will be merged with parameters from default configurations set above.
+# This allows you to overwrite only specified parameters
+
+# Task name. Note that it determines the output directory path
+task_name: "MURaMQS"  # Experiment
+task_seed: 3110  # For reproducibility
+
+# Paths
+paths:
+  run_id: "DeepVel_a_vz_to_vxvy"  # Run ID
+  task_dir: "../tracking_outputs"  # Task directory
+
+# Trainer configuration
+trainer:
+  min_epochs: 1  # To prevent early stopping
+  max_epochs: 64  # Number of epochs

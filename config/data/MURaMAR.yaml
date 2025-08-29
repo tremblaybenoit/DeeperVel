@@ -1,0 +1,129 @@
+# Data loader
+_recursive_: False
+_target_: track.model.data_loader.MuramARDataModule
+# Path to data
+dir: "/c/Users/TremblayBe/Documents/FlowTracking/data/MURaM_AR"
+# Path to data statistics
+stats: ${data.dir}/stats.yaml
+# Path to data eigenvectors/eigenvalues
+basis: ${data.dir}/basis.npz
+# Path to dataframe containing colocations
+dataframe: ${data.dir}/colocations.csv
+# Batch size when training
+batch_size: 32
+# Dataset
+dataset:
+  # Instance of the dataset
+  _recursive_: True
+  _target_: retrieval.model.data_loader.MURaMARDataset
+  # Thermodynamic profiles/Background state
+  state:
+    # Prefix of filenames
+    file_pattern: ${data.dir}/PertOnTrlLev
+    # Format of data files
+    file_reader:
+      _partial_: True
+      _target_: retrieval.data.read_write.FSTDDataset
+    # Variables of interest
+    variables:
+      UU:
+        # Flag whether to use this variable
+        use: True
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+      VV:
+        # Flag whether to use this variable
+        use: True
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+      TT:
+        # Flag whether to use this variable
+        use: True
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+      HU:
+        # Flag whether to use this variable
+        use: True
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+      P0:
+        # Flag whether to use this variable
+        use: True
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+      TG:
+        # Flag whether to use this variable
+        use: True
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+      EMMW:
+        # Flag whether to use this variable
+        use: False
+        # Scaling (factor multiplication, normalization, standardization, etc.)
+        scaling:
+          _partial_: True
+          _target_: retrieval.data.transformations.mean_stdev
+        # Transformations (rotations, sharpening, etc.)
+        transform:
+          _partial_: True
+          _target_: retrieval.data.transformations.identity
+
+  # Radiances
+  radiance:
+    # Prefix of filenames
+    file_pattern: ${data.dir}/obsto_amsua
+    # Format of data files
+    file_reader:
+      _partial: True
+      _target_: retrieval.data.read_write.SQLiteDataset
+    # Parallelization
+    file_split:
+      nodes: 10
+      cores: 16
+    filters:
+      # Flag whether to use this variable
+      use: [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True] #, True]
+      # Scaling (factor multiplication, normalization, standardization, etc.)
+      scaling:
+        _partial_: True
+        _target_: retrieval.data.transformations.mean_stdev
+      # Transformations (rotations, sharpening, etc.)
+      transform:
+        _partial_: True
+        _target_: retrieval.data.transformations.identity

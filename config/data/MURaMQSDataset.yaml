@@ -1,0 +1,218 @@
+# Dataset
+dataset:
+  yz:
+    # Path to data
+    path: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"
+    type: "directory"
+    # Reader
+    io:
+      # Partial instantiation
+      _partial_: True
+      # Target class
+      _target_: track.data.io.MURaMQSDataset
+      # Path to data
+      path: ${data.dataset.yz.path}
+      # Slice type
+      dataset: 'yz'
+    # Variables
+    variables:
+      Bx: ${data.variables.Bx}
+      By: ${data.variables.By}
+      Bz: ${data.variables.Bz}
+      vx: ${data.variables.vx}
+      vy: ${data.variables.vy}
+      vz: ${data.variables.vz}
+    # Statistics
+    statistics:
+      # Path to statistics
+      path: ${data.dataset.yz.path}/stats_yz.pkl
+      type: "file"
+  tau:
+    # Path to data
+    path: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"
+    type: "directory"
+    # Reader
+    io:
+      # Partial instantiation
+      _partial_: True
+      # Target class
+      _target_: track.data.io.MURaMQSDataset
+      # Path to data
+      path: ${data.dataset.tau.path}
+      # Slice type
+      dataset: 'tau'
+    # Variables
+    variables:
+      Bx: ${data.variables.Bx}
+      By: ${data.variables.By}
+      Bz: ${data.variables.Bz}
+      vx: ${data.variables.vx}
+      vy: ${data.variables.vy}
+      vz: ${data.variables.vz}
+    # Statistics
+    statistics:
+      # Path to statistics
+      path: ${data.dataset.tau.path}/stats_tau.pkl
+      type: "file"
+  # Continuum intensity dataset
+  I500:
+    # Path to data
+    path: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"
+    type: "directory"
+    # Reader
+    io:
+      # Partial instantiation
+      _partial_: True
+      # Target class
+      _target_: track.data.io.MURaMQSDataset
+      # Path to data
+      path: ${data.dataset.I500.path}
+      # Slice type
+      dataset: 'I500'
+    # Variables
+    variables:
+      I500: ${data.variables.I500}
+    # Statistics
+    statistics:
+      # Path to statistics
+      path: ${data.dataset.yz.path}/stats_I500.pkl
+      type: "file"
+
+# Preparation steps
+preparation:
+  # Compute statistics
+  statistics:
+    # Method (statistics, statistics_by_chunks, etc.)
+    method:
+      _target_: track.data.statistics.statistics
+      _partial_: true
+    # Input dataset(s)
+    input:
+      - ${data.dataset.I500}
+      - ${data.dataset.yz}
+      - ${data.dataset.tau}
+    # Output(s)
+    output:
+      # Data source
+      - ${data.dataset.I500.statistics}
+      - ${data.dataset.yz.statistics}
+      - ${data.dataset.tau.statistics}
+    # Invariance
+    transverse_invariance: true
+  # Training set patches
+  colocate:
+    # Input
+    input:
+      # Data source
+      data: ${loader.input[0].dataset.io}
+      # Patches
+      patches:
+        # Number of samples
+        n_samples: 3200
+        # Size of patches
+        size: [48, 48]
+        # Timesteps
+        t_range: [0, 300]
+        # Time steps
+        dt: [0, 1]
+    # Output
+    output:
+      # Patches
+      patches:
+        # Path
+        path: ${paths.task_dir}/patches.pkl
+        type: "file"
+
+# MHD variables and their transformations
+variables:
+  I500:
+    # Variable(s) to use to compute
+    dependency: ['I500']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.mean_stdev
+  Bx:
+    # Variable(s) to use to compute
+    dependency: ['Bx']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.mean_stdev
+  By:
+    # Variable(s) to use to compute
+    dependency: ['By']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+        # Partial instantiation
+        _partial_: True
+        _target_: track.data.transformations.mean_stdev
+  Bz:
+    # Variable(s) to use to compute
+    dependency: ['Bz']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+        # Partial instantiation
+        _partial_: True
+        _target_: track.data.transformations.mean_stdev
+  vx:
+    # Variable(s) to use to compute
+    dependency: ['vx']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.mean_stdev
+  vy:
+    # Variable(s) to use to compute
+    dependency: ['vy']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.mean_stdev
+  vz:
+    # Variable(s) to use to compute
+    dependency: ['vz']
+    # Transformations (rotations, sharpening, etc.)
+    transform:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.identity
+    # Scaling (factor multiplication, normalization, standardization, etc.)
+    scaling:
+      # Partial instantiation
+      _partial_: True
+      _target_: track.data.transformations.mean_stdev
