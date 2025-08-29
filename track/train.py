@@ -48,12 +48,12 @@ class Tracker:
         if self.config.get("seed"):
             lightning.seed_everything(self.config.task_seed, workers=True)
 
-    def setup(self, data_config, stage: str='train') -> None:
+    def setup(self, loader_config, stage: str='train') -> None:
         """ Setup trainer object.
 
             Parameters
             ----------
-            data_config: DictConfig. Configuration object for the data loader.
+            loader_config: DictConfig. Configuration object for the data loader.
             stage: str. Stage of the training process.
                         Options are 'train', 'test', or 'predict'.
 
@@ -64,7 +64,7 @@ class Tracker:
 
         # Data loader
         logger.info("Initializing data loader...")
-        self.data_loader = instantiate(data_config)
+        self.data_loader = instantiate(loader_config)
         # Generate training/validation/test sets
         self.data_loader.setup(stage=stage)
 
@@ -103,7 +103,7 @@ class Tracker:
         """
 
         # Data loader and trainer setup
-        self.setup(self.config.data.loader, stage='train')
+        self.setup(self.config.loader, stage='train')
 
         # Model
         logger.info("Initializing model...")
@@ -138,7 +138,7 @@ class Tracker:
         """
 
         # Data loader and trainer setup
-        self.setup(self.config.data.loader, stage='test')
+        self.setup(self.config.loader, stage='test')
 
         # Load model from a checkpoint
         if self.model is None:
@@ -178,12 +178,12 @@ class Tracker:
                                        self.data_loader.ds_test.state.variables[variable],
                                        self.data_loader.ds_test.state.stats[variable])
 
-    def predict(self, data_config: DictConfig) -> np.ndarray:
+    def predict(self, loader_config: DictConfig) -> np.ndarray:
         """ Predicts the output of the model on a given dataset.
 
             Parameters
             ----------
-            data_config: DictConfig. Configuration object for the data to predict on.
+            loader_config: DictConfig. Configuration object for the data to predict on.
 
             Returns
             -------
@@ -191,7 +191,7 @@ class Tracker:
         """
 
         # Data loader and trainer setup
-        self.setup(data_config, stage='predict')
+        self.setup(loader_config, stage='predict')
 
         # Load model from a checkpoint
         if self.model is None:

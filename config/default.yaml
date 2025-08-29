@@ -1,6 +1,7 @@
 # Note: The order of defaults determines the order in which configs override each other.
 defaults:
   - data: muramar
+  - loader: default
   - hydra: default
   - paths: default
   - model: deepvel

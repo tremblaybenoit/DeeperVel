@@ -1,6 +1,3 @@
-# Data loader
-_recursive_: False
-
 # Dataset
 dataset:
   yz:
@@ -81,60 +78,6 @@ dataset:
       path: ${data.dataset.yz.path}/stats_I500.pkl
       type: "file"
 
-# Data loader
-loader:
-  # Data loader
-  _recursive_: False
-  _target_: track.model.data_loader.LazyDataModule
-  # Input data
-  input:
-    # Dataset
-    - dataset: ${data.dataset.yz}
-      # Variables
-      variables:
-        # vx: ${data.dataset.yz.variables.vx}
-        # vy: ${data.dataset.yz.variables.vy}
-        # Bz: ${data.dataset.yz.variables.Bz}
-        vz: ${data.dataset.yz.variables.vz}
-      # Heights
-      slices: [384]
-      # Time steps
-      dt: [0, 1]
-    # - dataset: ${data.dataset.I500}
-    #   # Variables
-    #   variables:
-    #     I500: ${data.dataset.I500.variables.I500}
-    #   # Heights
-    #   slices: [0]
-    #   # Time steps
-    #   dt: [0, 1]
-  # Output data
-  output:
-    # Dataset
-    - dataset: ${data.dataset.yz}
-      # Variables
-      variables:
-        vx: ${data.dataset.yz.variables.vx}
-        vy: ${data.dataset.yz.variables.vy}
-      # Heights
-      slices: [384]
-      # Time steps
-      dt: [0]
-  # Split
-  split:
-    # Number of samples to use for training
-    train: 2560
-    # Number of samples to use for validation
-    valid: 640
-    # Number of samples to use for testing (0 = use all remaining data, excluding train and valid patches)
-    test: 0
-    # Batch size when training
-    batch_size: 32
-    # Patches to use for training
-    patches: ${data.preparation.colocate.output.patches.path}
-  # Apply geometric augmentation in the x/y plane
-  augment: true
-
 # Preparation steps
 preparation:
   # Compute statistics
@@ -161,7 +104,7 @@ preparation:
     # Input
     input:
       # Data source
-      data: ${data.loader.input[0].dataset.io}
+      data: ${loader.input[0].dataset.io}
       # Patches
       patches:
         # Number of samples
@@ -179,7 +122,6 @@ preparation:
         # Path
         path: ${paths.task_dir}/patches.pkl
         type: "file"
-
 
 # MHD variables and their transformations
 variables:
