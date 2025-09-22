@@ -9,7 +9,7 @@ from track.data.process import postprocess
 from track.utilities.instantiators import instantiate, instantiate_list
 from track.utilities.logic import get_config_path
 from track.utilities.logger import TrainerLogger
-torch.set_default_dtype(torch.float64)
+torch.set_float32_matmul_precision('high')
 
 
 # Initialize logger
@@ -35,7 +35,8 @@ class Tracker:
         # Load config object and resolve paths
         OmegaConf.resolve(config)
         self.config = config
-        self.checkpoint_path = config.callbacks.model_checkpoint.filename
+        self.checkpoint_path = (config.callbacks.model_checkpoint.dirpath +
+                                f"/{config.callbacks.model_checkpoint.filename}.ckpt")
 
         # Initialization
         self.data_loader = None

@@ -701,8 +701,8 @@ class MultiDataset(Dataset):
         """
 
         # Extract data from memory
-        input_data = [data[item].astype('float64') for data in self.input_data]
-        output_data = [data[item].astype('float64') for data in self.output_data] if self.output_data is not None else None
+        input_data = [data[item].astype('float32') for data in self.input_data]
+        output_data = [data[item].astype('float32') for data in self.output_data] if self.output_data is not None else None
 
         # Apply augmentation if specified
         if self.augment:
@@ -734,6 +734,6 @@ class MultiDataset(Dataset):
         input_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.inputs, input_data)], axis=-1)
         if output_data is not None:
             output_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.outputs, output_data)], axis=-1)
-            return input_combined.transpose(2, 0, 1), output_combined.transpose(2, 0, 1)
+            return input_combined.transpose(2, 0, 1).astype('float32'), output_combined.transpose(2, 0, 1).astype('float32')
         else:
-            return input_combined.transpose(2, 0, 1)
+            return input_combined.transpose(2, 0, 1).astype('float32')

@@ -1,9 +1,4 @@
-# Data loader
-_recursive_: False
-_target_: track.model.data_loader.LazyDataModule
-
-# Datasets
-# Current implementation supports one dataset at a time for input and output
+# Dataset
 dataset:
   yz:
     # Path to data
@@ -21,7 +16,6 @@ dataset:
       dataset: 'yz'
     # Variables
     variables:
-      I500: ${data.variables.I500}
       Bx: ${data.variables.Bx}
       By: ${data.variables.By}
       Bz: ${data.variables.Bz}
@@ -49,7 +43,6 @@ dataset:
       dataset: 'tau'
     # Variables
     variables:
-      I500: ${data.variables.I500}
       Bx: ${data.variables.Bx}
       By: ${data.variables.By}
       Bz: ${data.variables.Bz}
@@ -61,59 +54,29 @@ dataset:
       # Path to statistics
       path: ${data.dataset.tau.path}/stats_tau.pkl
       type: "file"
-
-# Data loader
-loader:
-  # Data loader
-  _recursive_: False
-  _target_: track.model.data_loader.LazyDataModule
-  # TODO: Turn into a list of datasets that can be combined
-  # Input data
-  input:
-    # Dataset
-    dataset: ${data.dataset.yz}
+  # Continuum intensity dataset
+  I500:
+    # Path to data
+    path: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"
+    type: "directory"
+    # Reader
+    io:
+      # Partial instantiation
+      _partial_: True
+      # Target class
+      _target_: track.data.io.MURaMQSDataset
+      # Path to data
+      path: ${data.dataset.I500.path}
+      # Slice type
+      dataset: 'I500'
     # Variables
     variables:
-      I500: ${data.dataset.yz.variables.I500}
-      Bx: ${data.dataset.yz.variables.Bx}
-      By: ${data.dataset.yz.variables.By}
-      Bz: ${data.dataset.yz.variables.Bz}
-      vz: ${data.dataset.yz.variables.vz}
-    # Heights
-    slices: [0]
-    # Time steps
-    dt: [0, 1]
-  # Output data
-  output:
-    # Dataset
-    dataset: ${data.dataset.yz}
-    # Variables
-    variables:
-      vx: ${data.dataset.yz.variables.vx}
-      vy: ${data.dataset.yz.variables.vy}
-    # Heights
-    slices: [0]
-    # Time steps
-    dt: [0]
-  # Split
-  split:
-    # Number of samples to use for training
-    train: 750
-    # Number of samples to use for validation
-    valid: 250
-    # Number of samples to use for testing (0 = use all remaining data, excluding train and valid patches)
-    test: 0
-    # Batch size when training
-    batch_size: 32
-    # Patches to use for training
-    patches: ${data.preparation.colocate.output.patches.path}
-  # Apply geometric augmentation in the x/y plane
-  augmentation: true
-  #  # Partial instantiation
-  #  _partial_: True
-  #  # Target class
-  #  _target_: track.data.transformations.GeometricVectorAugmentation
-
+      I500: ${data.variables.I500}
+    # Statistics
+    statistics:
+      # Path to statistics
+      path: ${data.dataset.yz.path}/stats_I500.pkl
+      type: "file"
 
 # Preparation steps
 preparation:
@@ -125,11 +88,13 @@ preparation:
       _partial_: true
     # Input dataset(s)
     input:
+      - ${data.dataset.I500}
       - ${data.dataset.yz}
       - ${data.dataset.tau}
     # Output(s)
     output:
       # Data source
+      - ${data.dataset.I500.statistics}
       - ${data.dataset.yz.statistics}
       - ${data.dataset.tau.statistics}
     # Invariance
@@ -139,25 +104,24 @@ preparation:
     # Input
     input:
       # Data source
-      data: ${data.loader.input.dataset.io}
+      data: ${loader.input[0].dataset.io}
       # Patches
       patches:
         # Number of samples
-        n_samples: 1000
+        n_samples: 3200
         # Size of patches
         size: [48, 48]
         # Timesteps
         t_range: [0, 300]
         # Time steps
-        dt: ${data.loader.input.dt}
+        dt: [0, 1]
     # Output
     output:
       # Patches
       patches:
         # Path
-        path: ${paths.checkpoint_dir}/patches.pkl
+        path: ${paths.task_dir}/patches.pkl
         type: "file"
-
 
 # MHD variables and their transformations
 variables:

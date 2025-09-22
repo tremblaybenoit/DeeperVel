@@ -1,7 +1,7 @@
 model_checkpoint:
   _target_: pytorch_lightning.callbacks.ModelCheckpoint
   dirpath: ${paths.checkpoint_dir}  # directory to save the model file
-  filename: ${callbacks.model_checkpoint.dirpath}/model.ckpt  # checkpoint filename
+  filename: model  # checkpoint filename
   monitor: "valid_loss"  # name of the logged metric which determines when model is improving
   save_top_k: True
   mode: "min"

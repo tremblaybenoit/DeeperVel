@@ -4,7 +4,8 @@ from omegaconf import DictConfig
 from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
 from track.track import Tracker
-
+import torch
+torch.set_float32_matmul_precision('high')
 
 # Initialize logger
 logger = logging.getLogger(__name__)

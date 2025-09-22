@@ -30,20 +30,46 @@ def generate_indices(x_min: int, x_max: int, y_min: int, y_max: int, t_min: int,
     """
 
     # Generate random indices for x, y, and t coordinates
-    x = np.random.randint(x_min, high=x_max, size=size, dtype='l')
-    y = np.random.randint(y_min, high=y_max, size=size, dtype='l')
-    t = np.random.randint(t_min, high=t_max, size=size, dtype='l')
+    xs = np.arange(x_min, x_max, dx, dtype=int)
+    ys = np.arange(y_min, y_max, dy, dtype=int)
+    ts = np.arange(t_min, t_max + 1, dtype=int)
+    all_cells = []
 
-    # Ensure that the generated indices are unique and satisfy the distance constraints
-    for i in range(2, size):
-        t_i = np.abs(t[:i] - t[i]) <= dt
-        if np.any(t_i):
-            while np.amin(np.abs(x[:i][t_i] - x[i])) < dx and np.amin(np.abs(y[:i][t_i] - y[i])) < dy:
-                # Regenerate x and y coordinates if they are too close to existing ones
-                x[i] = np.random.randint(x_min, high=x_max, size=1, dtype='l')[0]
-                y[i] = np.random.randint(y_min, high=y_max, size=1, dtype='l')[0]
+    # Generate all possible shifted grid cells for each timestep
+    for t in ts:
+        x_shift = np.random.randint(0, dx, dtype=int)
+        y_shift = np.random.randint(0, dy, dtype=int)
+        grid_xs = xs + x_shift
+        grid_ys = ys + y_shift
+        grid_xs = grid_xs[(grid_xs >= x_min) & (grid_xs < x_max)]
+        grid_ys = grid_ys[(grid_ys >= y_min) & (grid_ys < y_max)]
+        grid = np.array(np.meshgrid(grid_xs, grid_ys)).reshape(2, -1).T
+        for x, y in grid:
+            all_cells.append((int(x), int(y), int(t)))
 
-    return x.tolist(), y.tolist(), t.tolist()
+    # Shuffle and select cells with constraints
+    np.random.shuffle(all_cells)
+    selected = []
+    with tqdm(total=size, desc="Selecting cells") as pbar:
+        for cell in all_cells:
+            x, y, t = cell
+            # Check for spatial and temporal constraints
+            conflict = False
+            for x0, y0, t0 in selected:
+                if abs(t0 - t) <= dt and x0 <= dx and y0 <= dy:
+                    conflict = True
+                    break
+            if not conflict:
+                selected.append(cell)
+                pbar.update(1)
+            if len(selected) == size:
+                break
+
+    if len(selected) < size:
+        raise RuntimeError("Could not find enough valid samples with given constraints.")
+
+    x_out, y_out, t_out = zip(*selected)
+    return list(x_out), list(y_out), list(t_out)
 
 
 def colocate(config: DictConfig, save=True) -> dict:
