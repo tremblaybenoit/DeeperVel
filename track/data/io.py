@@ -6,6 +6,7 @@ from multiprocessing import Pool
 import itertools
 from track.utilities.logic import get_list
 from tqdm import tqdm
+import gc
 import time
 import tracemalloc
 
@@ -381,6 +382,7 @@ class MURaMQSDataset:
         else:
             with Pool(num_workers) as p:
                 data = np.stack(list(p.starmap(read_MURaMQS_var, args)), axis=0)
+            gc.collect()
 
         # Reshape data to (ny, nx, n_slices, n_iters, n_vars)
         data = (data.reshape(len(coordinates), len(slices), len(vars), ny, nx)).transpose(3, 4, 1, 0, 2)

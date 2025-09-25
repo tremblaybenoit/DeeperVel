@@ -6,6 +6,12 @@ from pytorch_lightning import LightningModule
 import torch.nn as nn
 import numpy as np
 from track.utilities.instantiators import instantiate
+import psutil
+import os
+
+def get_ram_usage_gb():
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 ** 3  # RAM in GB
 
 
 def same_padding(kernel_size: int, stride: int) -> int:
@@ -132,12 +138,19 @@ class BaseModel(LightningModule):
         """
 
         # Extract data from batch
+        ram_before = get_ram_usage_gb()
         x, y = batch
+        ram_after = get_ram_usage_gb()
+        print(f"[base_step] 1 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
 
         # Forward pass
         y_pred = self(x)
+        ram_after = get_ram_usage_gb()
+        print(f"[base_step] 2 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
         # Compute loss function
         loss = self.loss_func(y_pred, y)
+        ram_after = get_ram_usage_gb()
+        print(f"[base_step] 3 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
 
         # Compute metrics (for diagnostic purposes)
         epsilon = sys.float_info.min
@@ -161,6 +174,10 @@ class BaseModel(LightningModule):
             # Store validation outputs and targets
             self.valid_result.append(y_pred.detach().cpu().numpy())
             self.valid_target.append(y.detach().cpu().numpy())
+
+        ram_after = get_ram_usage_gb()
+        print(f"[base_step] 4 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
+        breakpoint()
 
         return loss
 

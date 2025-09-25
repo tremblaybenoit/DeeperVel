@@ -1,6 +1,8 @@
+import gc
 import os
 import numpy as np
 import pickle
+import psutil
 from omegaconf import DictConfig, ListConfig
 import pytorch_lightning as lightning
 from torch.utils.data import DataLoader, Dataset
@@ -23,11 +25,14 @@ def get_item(args):
 
 def load_all(ds):
     with ProcessPoolExecutor() as executor:
-        return list(tqdm(
+        result = list(tqdm(
             executor.map(get_item, [(ds, i) for i in range(len(ds))], chunksize=32),
             total=len(ds),
             desc="Loading dataset"
         ))
+    # Free memory
+    gc.collect()
+    return result
 
 
 class BaseDataModule(lightning.LightningDataModule):
