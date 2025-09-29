@@ -1,9 +1,14 @@
+from tqdm import tqdm
 import numpy as np
 import pickle
 import hydra
 from omegaconf import DictConfig
 from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
+import logging
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 
 # Generate random indices to extract random patches
@@ -97,16 +102,20 @@ def colocate(config: DictConfig, save=True) -> dict:
     x_max, y_max = io.nx - patches_config.size[1], io.ny - patches_config.size[0]
     t_min, t_max = (np.abs(patches_config.t_range[0] + np.amin(patches_config.dt)),
                     patches_config.t_range[1] - 1 - np.abs(np.amax(patches_config.dt)))
+    logger.info("Generating spatiotemporal indices...")
     x, y, t = generate_indices(x_min, x_max, y_min, y_max, t_min, t_max, patches_config.size[1], patches_config.size[0],
                                patches_config.n_samples)
 
     # Store colocated data
+    logger.info("Storing colocated data...")
     patches = {"nx": patches_config.size[1], "x_min": x, "x_max": [x_i + patches_config.size[1] for x_i in x],
                "ny": patches_config.size[0], "y_min": y, "y_max": [y_i + patches_config.size[0] for y_i in y],
                "nt": patches_config.n_samples, "t": t, "t_min": t_min, "t_max": t_max}
 
     # Save colocated data to a file
+    # TODO: Fix
     if save and getattr(getattr(config.output, "patches", None), "path", None):
+        logger.info(f"Saving colocated data to file {config.output.patches.path}.")
         with open(config.output.patches.path, 'wb') as file:
             # noinspection PyTypeChecker
             pickle.dump(patches, file)
@@ -130,7 +139,8 @@ def main(config: DictConfig) -> None:
     # If statistics is part of the preparation steps:
     if hasattr(config.data.preparation, "colocate"):
         # Assign patches for input and output variables
-        colocation = colocate(config.data.preparation.colocate)
+        logger.info(f"Colocating data...")
+        _ = colocate(config.data.preparation.colocate)
 
     return
 

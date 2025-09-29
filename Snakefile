@@ -1,4 +1,4 @@
-from config.setup import read_hydra_as_dict, setup_directories_from_hydra, check_key_in_dict
+from config.setup import read_hydra_as_dict, setup_directories_from_hydra
 
 
 #########################################################################################################
@@ -9,130 +9,192 @@ from config.setup import read_hydra_as_dict, setup_directories_from_hydra, check
 hydra_config_path = config.get("hydra-config-path", "../config")
 hydra_config_name = config.get("hydra-config-name", "default")
 hydra_experiment = config.get("hydra-experiment", None)
+hydra_dependencies = config.get("hydra-dependencies", False)
 
-# Create the necessary directories
+# Create necessary directories
 setup_directories_from_hydra(config_path=hydra_config_path, config_name=hydra_config_name,
-                             overrides=f'+experiment={hydra_experiment}')
+                             overrides=f"+experiment={hydra_experiment}")
+
 # Hydra configuration file
 hydra_config = read_hydra_as_dict(config_path=hydra_config_path, config_name=hydra_config_name,
-                                  overrides=f'+experiment={hydra_experiment}')
+                                  overrides=f"+experiment={hydra_experiment}")
 # Data configuration file (from Snakemake config file)
-data_config = hydra_config["data"]
-# Loader configuration file (from the Snakemake config file)
-loader_config = hydra_config["loader"]
-# Paths configuration file (from the Snakemake config file)
+data_config = hydra_config.get("data", {})
+prep_config = hydra_config.get("preparation", {})
+loader_config = hydra_config.get("loader", {}).get("stage", {})
+# Paths configuration file (from Snakemake config file)
 paths_config = hydra_config["paths"]
 # Callback configuration file (from Snakemake config file)
 checkpoint_config = hydra_config["callbacks"]["model_checkpoint"]
 
-def get_path_from_config(config, key='path', flag_directories=False):
+#########################################################################################################
+# HELPER FUNCTIONS
+#########################################################################################################
+
+seen_dependencies = set()
+def find_file_paths(config, exts=('.npy', '.npz', '.pkl', '.txt', '.ckpt', '.csv', '.json'),
+                    exclude_keys=None, track_seen_dependencies=False):
+    """ Recursively find all file path strings in a nested config dict/list.
+
+        Parameters
+        ----------
+        config: dict, list, or str. The configuration to search.
+        exts: tuple of str. File extensions to look for.
+        exclude_keys: set of str. Keys to exclude from the search.
+        track_seen_dependencies: bool. If True, only return unique file paths across multiple calls.
+
+        Returns
+        -------
+        paths: list of str. List of file paths found in the configuration.
     """
-    Extracts paths from a configuration dictionary.
 
-    Parameters
-    ----------
-    config : dict
-        Configuration dictionary.
-    key : str, optional
-        Key to extract from the configuration dictionary. The default is 'path'.
-    flag_directories : bool, optional
-        Flag to check if the configuration is a directory. The default is False.
+    # Initialize exclude_keys if not provided
+    if exclude_keys is None:
+        exclude_keys = set()
 
-    Returns
-    -------
-    dict
-        Dictionary containing the paths.
-    """
-
-    # If the flag is set to True
-    if flag_directories:
-
-        # Check if the key is a directory
-        return [directory(config[subkey][key]) if config[subkey]['type'] == 'directory'
-                else config[subkey][key] for subkey in config]
-
-    else:
-        # Extract the paths from the configuration
-        return [config[subkey][key] for subkey in config]
+    # Initialize list to store file paths
+    paths = []
+    # Recursively search through the config
+    if isinstance(config,dict):
+        for k, v in config.items():
+            if k in exclude_keys:
+                continue
+            paths.extend(find_file_paths(v, exts, exclude_keys, track_seen_dependencies))
+    elif isinstance(config,list):
+        for v in config:
+            paths.extend(find_file_paths(v, exts, exclude_keys, track_seen_dependencies))
+    elif isinstance(config,str):
+        if any(config.endswith(ext) for ext in exts):
+            if track_seen_dependencies:
+                if config not in seen_dependencies:
+                    seen_dependencies.add(config)
+                    paths.append(config)
+            else:
+                paths.append(config)
+    return sorted(paths)
 
 #########################################################################################################
-# TARGET
+# RULES
 #########################################################################################################
 
-# Target: The one rule to rule them all
-rule trained_tracker:
-    input:
-        checkpoint = checkpoint_config['filename']
-
-#########################################################################################################
-# JOBS
-#########################################################################################################
-
-# Loop over preparation steps
-for step_nb, step_name in enumerate(data_config['preparation']):
-    rule:
-        name: f"{step_name}"
-        input:
-            get_path_from_config(data_config['preparation'][step_name]['input'], key='path')
-        output:
-            get_path_from_config(data_config['preparation'][step_name]['output'], key='path', flag_directories=True)
-        params:
-            config_name = hydra_config_name,
-            experiment = hydra_experiment,
-            target = step_name,
-            condition = f"~data.dataset.state.preparation.{step_name}" if check_key_in_dict(step_name, data_config['preparation']) else ""
-        shell:
-            """
-            python -m track.data.{params.target} \
-            --config-name={params.config_name} \
-            +experiment={params.experiment} \
-            {params.condition}
-            """
-
-# Location of the data
-#if check_key_in_dict('colocation', data_config):
-#    rule colocation:
-#        input:
-#            radiance_data = data_config['colocation']['input']['radiance']['path'],
-#            state_data = data_config['colocation']['input']['state']['path']
-#        params:
-#            config_name = hydra_config_name,
-#            experiment = hydra_experiment,
-#            log_path= paths_config['log_dir'],
-#            run_path=paths_config['run_dir']
-#        output:
-#            dataframe = data_config['colocation']['output']['data']['path']
-#        shell:
-#            """
-#            python -m retrieval.data.colocation \
-#            --config-name={params.config_name} \
-#            +experiment={params.experiment}
-#        """
-
-# Training
-rule training:
-    input:
-        radiance_data = radiance_config['files']['data']['path'],
-        state_data = state_config['files']['data']['path'],
-        radiance_stats = radiance_config['preparation']['statistics']['output']['data']['path'],
-        state_stats = state_config['preparation']['statistics']['output']['data']['path'],
-        data_frame = data_config['colocation']['output']['data']['path']
+# Data download
+rule data:
     params:
+        # Hydra configuration
         config_name = hydra_config_name,
-        experiment = hydra_experiment,
-        checkpoint_path = paths_config['checkpoint_dir'],
-        log_path = paths_config['log_dir'],
-        run_path = paths_config['run_dir'],
+        experiment = f"+experiment={hydra_experiment}" if hydra_experiment is not None else ""
     output:
-        checkpoint = checkpoint_config['filename']
-    # resources:
-    #     nvidia_gpu = 1
+        # Downloaded data
+        data = set([path for stage_config in data_config['stage'].values() for var in stage_config['vars'].values()
+                    for path in find_file_paths(var['load'], exclude_keys='normalization')])
     shell:
         """
-        python -c "import os; os.makedirs('{params.log_path}', exist_ok=True)" && \
-        python -c "import os; os.makedirs('{params.run_path}', exist_ok=True)" && \
-        python -c "import os; os.makedirs('{params.checkpoint_path}', exist_ok=True)" && \
-        python -m retrieval.train \
+        python -m utilities.download \
         --config-name={params.config_name} \
-        +experiment={params.experiment}
+        {params.experiment}
         """
+
+# Preparation: All steps in prep_config
+for prep_type, step_dict in prep_config.items():
+    # Set module and exclude_keys based on prep_type
+    if prep_type == 'statistics':
+        module_to_run = 'inverse.data.statistics'
+        keys_to_exclude = 'normalization'
+    elif prep_type == 'colocate':
+        module_to_run = 'inverse.data.colocate'
+        keys_to_exclude = None
+    else:
+        continue  # Skip unknown prep types or handle as needed
+
+    for step, step_config in step_dict.items():
+        rule:
+            name: f"{prep_type}_{step}"
+            input:
+                data = set([path for vars_config in step_config['input'].values()
+                            for path in find_file_paths(vars_config, exclude_keys=keys_to_exclude,
+                                                        track_seen_dependencies=hydra_dependencies)])
+            params:
+                config_name = hydra_config_name,
+                experiment = f"+experiment={hydra_experiment}" if hydra_experiment is not None else ""
+            output:
+                out = step_config['output']['path']
+            shell:
+                f"""
+                python -m {module_to_run} \
+                --config-name={{params.config_name}} \
+                {{params.experiment}}
+                """
+
+# Training step
+if 'train' in loader_config:
+    rule train:
+        input:
+            # Input coordinates and observations
+            data = set([path for stage in ['train', 'valid'] for vars_config in loader_config[stage].values()
+                        for path in find_file_paths(vars_config, track_seen_dependencies=hydra_dependencies)]),
+            # Data statistics and other preparation outputs
+            preparation = set([path for step in prep_config for step_config in prep_config[step].values()
+                               for path in find_file_paths(step_config['output'], track_seen_dependencies=hydra_dependencies)]),
+        params:
+            # Hydra configuration
+            config_name = hydra_config_name,
+            experiment = f"+experiment={hydra_experiment}" if hydra_experiment is not None else ""
+        output:
+            # Model checkpoint
+            checkpoint = f"{paths_config['checkpoint_dir']}/{checkpoint_config['filename']}.ckpt"
+        shell:
+            """
+            python -m inverse.train \
+            --config-name={params.config_name} \
+            {params.experiment}
+            """
+
+# Test step
+if 'test' in loader_config:
+    rule test:
+        input:
+            # Input coordinates and observations
+            data = set([path for path in find_file_paths(loader_config['test'], exclude_keys='results',
+                track_seen_dependencies=hydra_dependencies)]),
+            # Data statistics and other preparation outputs
+            preparation = set([path for step in prep_config for step_config in prep_config[step].values()
+                               for path in find_file_paths(step_config['output'], track_seen_dependencies=hydra_dependencies)]),
+            # Model checkpoint
+            checkpoint = f"{paths_config['checkpoint_dir']}/{checkpoint_config['filename']}.ckpt"
+        params:
+            # Hydra configuration
+            config_name = hydra_config_name,
+            experiment = f"+experiment={hydra_experiment}" if hydra_experiment is not None else ""
+        output:
+            # Output results
+            test_out = [var['load']['path'] for var in loader_config['test']['results'].values()]
+        shell:
+            """
+            python -m inverse.test \
+            --config-name={params.config_name} \
+            {params.experiment}
+            """
+
+# Prediction step
+# TODO: Untested.
+if 'predict' in loader_config:
+    rule predict:
+        input:
+            # Input coordinates
+            data = set([path for path in find_file_paths(loader_config['predict'], exclude_keys='results',
+                track_seen_dependencies=hydra_dependencies)]),
+            # Model checkpoint
+            checkpoint = f"{paths_config['checkpoint_dir']}/{checkpoint_config['filename']}.ckpt"
+        params:
+            # Hydra configuration
+            config_name = hydra_config_name,
+            experiment = f"+experiment={hydra_experiment}" if hydra_experiment is not None else ""
+        output:
+            # Output results
+            predict_out = [var['load']['path'] for var in loader_config['predict']['results'].values()]
+        shell:
+            """
+            python -m inverse.predict \
+            --config-name={params.config_name} \
+            {params.experiment}
+            """

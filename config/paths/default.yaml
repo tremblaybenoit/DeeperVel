@@ -4,13 +4,13 @@
 root_dir: "."
 
 # Run name, used to identify the run
-run_id: "Tracking"
+run_id: "Tracking_run"
 
 # Path to data directory
-# data_dir: ${data.dir}
+data_dir: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"
 
 # Task directory; where to store outputs
-task_dir: "../tracker_outputs"
+task_dir: "../tracking_outputs"
 
 # Path to logging directory
 log_dir: ${hydra:runtime.output_dir}/logs

@@ -1,26 +1,23 @@
+import os.path
 import numpy as np
-import os
 import logging
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch
 import pytorch_lightning as lightning
-from track.data.process import postprocess
+from track.utilities.logger import TrainerLogger
 from track.utilities.instantiators import instantiate, instantiate_list
 from track.utilities.logic import get_config_path
-from track.utilities.logger import TrainerLogger
 torch.set_float32_matmul_precision('high')
-
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 
 
 class Tracker:
-    """Class for tracking plasma motions (or other physical quantities) using neural networks."""
-
+    """Class for training a neural network operator."""
     def __init__(self, config: DictConfig) -> None:
-        """ Initialization of the trainer and its configuration.
+        """ Initialization of trainer and its configuration.
 
             Parameters
             ----------
@@ -31,12 +28,23 @@ class Tracker:
             None.
 
         """
+        logger.info("Reading Hydra configuration...")
 
         # Load config object and resolve paths
         OmegaConf.resolve(config)
         self.config = config
         self.checkpoint_path = (config.callbacks.model_checkpoint.dirpath +
                                 f"/{config.callbacks.model_checkpoint.filename}.ckpt")
+
+        # Create output directories if they don't exist
+        if not os.path.exists(self.config.paths.output_dir):
+            os.makedirs(self.config.paths.output_dir, exist_ok=True)
+        if not os.path.exists(self.config.paths.checkpoint_dir):
+            os.makedirs(self.config.paths.checkpoint_dir, exist_ok=True)
+        if not os.path.exists(self.config.paths.log_dir):
+            os.makedirs(self.config.paths.log_dir, exist_ok=True)
+        if not os.path.exists(self.config.paths.data_dir):
+            os.makedirs(self.config.paths.run_dir, exist_ok=True)
 
         # Initialization
         self.data_loader = None
@@ -45,7 +53,7 @@ class Tracker:
         self.trainer = None
         self.model = None
 
-        # For reproducibility, set the randomizer seed if provided
+        # For reproducibility, set randomizer seed if provided
         if self.config.get("seed"):
             lightning.seed_everything(self.config.task_seed, workers=True)
 
@@ -70,7 +78,7 @@ class Tracker:
         self.data_loader.setup(stage=stage)
 
         # Trainer loggers and callbacks: Only activated during training
-        if stage in ['train', 'test']:
+        if stage == 'train':
             # Configure logger
             if self.trainer_logger is None:
                 TrainerLogger(self.config.logger).configure()
@@ -109,22 +117,24 @@ class Tracker:
         # Model
         logger.info("Initializing model...")
         self.model = instantiate(self.config.model)
+        if hasattr(self.config.data, 'dtype'):
+            self.model = self.model.to(None, dtype=getattr(torch, self.config.data.dtype))
+        else:
+            self.model = self.model.to(None, dtype=getattr(torch, 'float32'))
 
-        # Train the model from scratch or continue training⚡
+        # Train the model ⚡
         resume_ckpt = self.config.get("resume_from_checkpoint", None)
         if resume_ckpt and os.path.exists(resume_ckpt):
             logger.info(f"Resuming training from checkpoint: {resume_ckpt}")
             self.trainer.fit(self.model, self.data_loader, ckpt_path=resume_ckpt)
         else:
-            logger.info("Training...")
+            logger.info("Training model...")
             self.trainer.fit(self.model, self.data_loader)
-        print("Training complete.")
+        logger.info("Done!")
 
-        # Save optimal model checkpoint
-        print("Saving model checkpoint...")
-        save_dictionary = OmegaConf.to_container(self.config.copy())
-        save_dictionary['model'] = self.model
-        torch.save(save_dictionary, self.checkpoint_path)
+        # Save optimal model checkpoint along with configuration
+        logger.info("Saving model checkpoint...")
+        self.trainer.save_checkpoint(self.checkpoint_path, weights_only=False)
 
     def test(self) -> None:
         """ Loads data, loggers, callbacks, trainer, and then tests the model. Saves the test results in a file.
@@ -138,46 +148,38 @@ class Tracker:
             None. The test results are stored in self.config.paths.checkpoint_dir.
         """
 
+        # Create output directories if they don't exist
+        for result_key, result_config in self.config.loader.stage.test.results.items():
+            save_dir = os.path.dirname(result_config.path)
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+
         # Data loader and trainer setup
         self.setup(self.config.loader, stage='test')
 
-        # Load model from a checkpoint
+        # Load model from checkpoint
         if self.model is None:
-            logger.info("Loading checkpoint...")
-            state = torch.load(self.checkpoint_path, weights_only=False)
-            self.model = state['model']
+            logger.info("Loading model...")
+            self.model = instantiate(self.config.model)
+            checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=True)
+            self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+            if hasattr(self.config.data, 'dtype'):
+                self.model = self.model.to(None, dtype=getattr(torch, self.config.data.dtype))
+            else:
+                self.model = self.model.to(None, dtype=getattr(torch, 'float32'))
 
-        # Evaluate on the test set
+        # Evaluate on test set
         logger.info("Running against test set...")
-        results = self.trainer.test(self.model, self.data_loader)
-        # Extract results
-        test_results = self.model.test_results
-        # Reshape based on state variables and heights
-        # TODO: Reshape properly
-        predictions = test_results.reshape(test_results.shape[0],
-                                           len(self.data_loader.ds_predict.state_variables), -1)
-
-        # Postprocess predictions
-        for v, variable in enumerate(self.data_loader.ds_predict.state_variables):
-            # Undo transformations and save
-            predictions[:, v, :] = postprocess(predictions[:, v, :],
-                                               self.data_loader.ds_predict.state_variables[variable],
-                                               self.data_loader.ds_predict.state_stats[variable])
+        _ = self.trainer.test(self.model, self.data_loader)
 
         # Save test results to file
-        logger.info("Saving test results...")
-        io = instantiate(self.config.data.dataset.state.files.data.io, _partial_=False)
-        io.open(os.path.join(self.config.callbacks.model_checkpoint.dirpath, 'test'), mode='w')
-        # Reshape based on state variables and heights
-        self.model.test_results = self.model.test_results.reshape(self.model.test_results.shape[0],
-                                                                  len(self.data_loader.ds_test.state.variables), -1)
-
-        # Save test results
-        for v, variable in enumerate(self.data_loader.ds_test.state.variables):
-            # Undo transformations and save
-            io[variable] = postprocess(self.model.test_results[:, v, :],
-                                       self.data_loader.ds_test.state.variables[variable],
-                                       self.data_loader.ds_test.state.stats[variable])
+        logger.info("Saving results to file...")
+        if hasattr(self.config.loader.stage.test, 'results'):
+            # Loop over all results in the config and save them
+            for result_name, result_config in self.config.loader.stage.test.results.items():
+                if result_name in self.model.test_results and hasattr(result_config, 'save'):
+                    save_function = instantiate(result_config.save)
+                    save_function(self.model.test_results[result_name])
 
     def predict(self, loader_config: DictConfig) -> np.ndarray:
         """ Predicts the output of the model on a given dataset.
@@ -191,36 +193,38 @@ class Tracker:
             None.
         """
 
+        # Create output directories for all results keys if they don't exist
+        for result_key, result_config in self.config.loader.stage.predict.results.items():
+            save_dir = os.path.dirname(result_config.path)
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+
         # Data loader and trainer setup
         self.setup(loader_config, stage='predict')
 
-        # Load model from a checkpoint
+        # Load model from checkpoint
         if self.model is None:
-            logger.info("Loading checkpoint...")
-            state = torch.load(self.checkpoint_path, weights_only=False)
-            self.model = state['model']
+            logger.info("Loading model...")
+            self.model = instantiate(self.config.model)
+            checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=True)
+            self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+            if hasattr(self.config.data, 'dtype'):
+                self.model = self.model.to(None, dtype=getattr(torch, self.config.data.dtype))
+            else:
+                self.model = self.model.to(None, dtype=getattr(torch, 'float32'))
 
         # Predict on dataset
         logger.info("Predicting on dataset...")
         predictions = torch.cat(self.trainer.predict(self.model, self.data_loader), dim=0).cpu().numpy()
         # Reshape based on state variables and heights
-        # TODO: Reshape properly
-        predictions = predictions.reshape(predictions.shape[0],
-                                          len(self.data_loader.ds_predict.state_variables), -1)
-
-        # Postprocess predictions
-        for v, variable in enumerate(self.data_loader.ds_predict.state_variables):
-            # Undo transformations and save
-            predictions[:, v, :] = postprocess(predictions[:, v, :],
-                                               self.data_loader.ds_predict.state_variables[variable],
-                                               self.data_loader.ds_predict.state_stats[variable])
+        predictions = predictions.reshape(predictions.shape[0], -1)
 
         return predictions
 
 
 @hydra.main(version_base=None, config_path=get_config_path(), config_name="default")
 def main(config: DictConfig) -> None:
-    """ Train neural network based on a set of configurations.
+    """ Train neural network based on set of configurations.
 
         Parameters
         ----------
@@ -231,17 +235,16 @@ def main(config: DictConfig) -> None:
         None.
     """
 
-    # Initialize the trainer object
-    logger.info("Initializing tracker...")
-    tracker = Tracker(config)
+    # Initialize trainer object
+    logger.info("Initializing the tracking model...")
+    tracking_model = Tracker(config)
 
     # Train the model
-    logger.info("Training tracker...")
-    tracker.train()
-
+    logger.info("Training the tracking model...")
+    tracking_model.train()
 
 if __name__ == '__main__':
-    """ Train neural network to track plasma motions (or other physical quantities).
+    """ Train the tracking model.
 
         Parameters
         ----------

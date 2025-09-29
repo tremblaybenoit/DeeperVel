@@ -1,5 +1,6 @@
 # Model module
 _target_: track.model.model.DeepVelModel
+_recursive_: false
 
 # Parameters for the model
 n_in_channels: 10
@@ -11,16 +12,17 @@ stride: 1
 
 # Activation function
 activation:
-  _target_: torch.nn.ReLU  # Activation function
-  _partial_: True  # Partial initialization
+  # Module
+  _target_: torch.nn.ReLU
 
 # Optimizer
 optimizer:
-  _target_: torch.optim.Adam  # Optimizer function
-  _partial_: True  # Partial initialization
-  lr: 1.e-4  # Learning rate
+  # Function
+  _target_: torch.optim.Adam
+  # Learning rate
+  lr: 1.e-3
 
 # Loss term(s)
 loss_func:
-  _target_: track.model.loss.mse  # Loss function
-  _partial_: True  # Partial initialization
+  # Function
+  _target_: track.model.loss.MSE

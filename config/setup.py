@@ -1,6 +1,4 @@
 import os
-
-import yaml
 from omegaconf import OmegaConf
 from hydra import initialize, compose
 from hydra.core.hydra_config import HydraConfig
@@ -8,42 +6,48 @@ import argparse
 
 
 def get_key_in_dict(key, dictionary):
-    """ Get the value of a key in a nested dictionnary.
+    """
+    Extracts a key from a dictionary.
 
-        Parameters
-        ----------
-        key: str. Key to find in the dictionnary.
-        dictionary: dict. Dictionnary in which to search for the key.
+    Parameters
+    ----------
+    key : str
+        Key to extract.
+    dictionary : dict
+        Dictionary to extract from.
 
-        Returns
-        -------
-        value: Value of the key in the dictionnary.
+    Returns
+    -------
+    dict
+        Dictionary containing the key.
     """
 
-    # Check if the key is in the dictionnary
-    if key in dictionary:
+    # Check if key is in dictionary
+    if check_key_in_dict(key, dictionary):
         return dictionary[key]
+    # Raise an error if key is not in dictionary
+    else:
+        raise KeyError(f"Key '{key}' not found in dictionary.")
 
-    # Otherwise, raise an error
-    raise ValueError(f"Key {key} not found in the dictionnary.")
 
-
+# Check if key is in dictionary
 def check_key_in_dict(key, dictionary):
-    """ Check if a key is in a dictionnary.
-
-        Parameters
-        ----------
-        key: str. Key to find in the dictionnary.
-        dictionary: dict. Dictionnary in which to search for the key.
-
-        Returns
-        -------
-        bool: True if the key is in the dictionnary, False otherwise.
     """
+    Check if a key is in a dictionary.
 
-    # Check if the key is in the dictionnary
+    Parameters
+    ----------
+    key : str
+        Key to check.
+    dictionary : dict
+        Dictionary to check.
+
+    Returns
+    -------
+    bool
+        True if the key is in the dictionary, False otherwise.
+    """
     return key in dictionary
-
 
 
 def read_hydra_as_dict(config_path, config_name, version_base=None, overrides=None, return_hydra_config=True,
@@ -120,7 +124,7 @@ def setup_directories_from_hydra(config_path, config_name, overrides=None, verbo
         verbose=verbose
     )
     paths_config = hydra_config['paths']
-    dirs = ['task_dir', 'output_dir', 'checkpoint_dir', 'log_dir', 'run_dir']
+    dirs = ['task_dir', 'output_dir', 'checkpoint_dir', 'log_dir', 'run_dir', 'data_dir']
 
     # Create directories based on the paths configuration
     for dir in dirs:

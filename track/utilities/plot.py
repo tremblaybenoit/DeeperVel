@@ -1,3 +1,4 @@
+from typing import Union, Callable
 import matplotlib.pyplot as plt
 from pylab import *
 import numpy as np
@@ -32,121 +33,174 @@ white_viridis = LinearSegmentedColormap.from_list('white_viridis',
                                                         (1, '#fde624')], N=256)
 
 
-def flexible_gridspec(row_col_counts: list[int], cell_width: float=4.0, cell_height: float=4.0,
-                      left: float=0.8, right: float=0.8, bottom: float=0.58, top: float=0.42) \
-        -> tuple[plt.Figure, callable]:
-    """ Create a figure with the flexible grid layout.
+def flexible_gridspec(cell_widths: list[float], cell_heights: list[float], lefts: list[float], rights: list[float],
+                      bottoms: list[float], tops: list[float]) -> tuple[plt.Figure, Callable]:
+    """
+    Create a figure with a flexible grid layout, allowing per-row/column cell sizes and per-row/column paddings.
 
     Parameters
     ----------
-    row_col_counts: list of ints, number of columns in each row.
-    cell_width, cell_height: size of each cell in inches.
-    left, right, bottom, top: margins in inches.
+    cell_widths: list of floats, width of each column in inches.
+    cell_heights: list of floats, height of each row in inches.
+    lefts: list of floats, left padding for each column.
+    rights: list of floats, right padding for each column.
+    bottoms: list of floats, bottom padding for each row.
+    tops: list of floats, top padding for each row.
 
     Returns
     -------
     fig, get_ax(row, col)
     """
 
-    # Extract the number of rows and columns
-    nrows = len(row_col_counts)
-    max_cols = max(row_col_counts)
+    # Number of rows and columns
+    nrows = len(cell_heights)
+    ncols = len(cell_widths)
+
     # Compute total width and height
-    fig_width = max_cols * (cell_width + left + right)
-    fig_height = nrows * (cell_height + top + bottom)
+    fig_width = sum(cell_widths) + sum(lefts) + sum(rights)
+    fig_height = sum(cell_heights) + sum(bottoms) + sum(tops)
+
+    # Create figure
     fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=False)
 
     # Precompute x/y positions for each cell
     x_starts = []
-    for cols in row_col_counts:
-        row_x = [(i+1)*left + i*(cell_width + right) for i in range(cols)]
-        x_starts.append(row_x)
-    y_starts = [(nrows-r)*bottom + (nrows - 1 - r) * (cell_height + top) for r in range(nrows)]
+    x = 0
+    for col in range(ncols):
+        x += lefts[col]
+        x_starts.append(x)
+        x += cell_widths[col] + rights[col]
+    y_starts = []
+    y = fig_height
+    for row in range(nrows):
+        y -= tops[row]
+        y_starts.append(y - cell_heights[row])
+        y -= cell_heights[row] + bottoms[row]
 
-    # Axes layout for each cell
     def get_ax(row: int, col: int) -> plt.Axes:
-        """ Establish layout for gridspec.
+        """Get axes for the specified row and column.
 
         Parameters
         ----------
-        row: int, row index.
-        col: int, column index.
+        row: int, row index (0-based).
+        col: int, column index (0-based).
 
         Returns
         -------
-        ax: matplotlib.axes.Axes. Axes for the specified row and column.
+        ax: plt.Axes, axes for the specified cell.
         """
 
-        # Compute normalized properties for [left, bottom, width, height]
-        x0 = x_starts[row][col] / fig_width
+        # Compute position and size of the cell in figure coordinates
+        x0 = x_starts[col] / fig_width
         y0 = y_starts[row] / fig_height
-        w = cell_width / fig_width
-        h = cell_height / fig_height
-
-        # Create the axes
+        w = cell_widths[col] / fig_width
+        h = cell_heights[row] / fig_height
         return fig.add_axes((x0, y0, w, h))
 
     return fig, get_ax
 
 
-def apply_colorbar(ax, plot, size=0.05*4/(0.8+0.8+4),
-                   font_size=13, label='Density', label_pad=15.5, pad=0.05,
-                   axis="y", orientation="vertical", rotation=270, side='right',
-                   ticks=None, tickw=1, tickl=2.5, tickdir='out') -> plt.colorbar:
-    """ Add a colorbar to the given axes
+def apply_colorbar(ax, plot, font_size: float=13, label: str='Density', label_pad: float=15.5,
+                   orientation: str="horizontal", rotation: float=0, side: str='bottom', vmin: float=-1, vmax: float=1,
+                   size: float=0.01, pad: float=0.08, ticks=None, tickw: float=1, tickl: float=2.5, tickdir: str='out') \
+        -> plt.colorbar:
+    """
+    Add a floating colorbar to the given axes, using fig.add_axes, without shrinking the plot.
+    If horizontal, colorbar width matches plot width and side can be 'bottom' or 'top'.
+    If vertical, colorbar height matches plot height and side can be 'left' or 'right'.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes. Axes to add the colorbar to.
-    plot : matplotlib.collections.Collection. The plot to which the colorbar is associated.
-    size : float. Size of the colorbar.
-    font_size : int. Font size for the colorbar ticks.
+    plot : matplotlib.cm.ScalarMappable. The plot to which the colorbar applies (e.g., the result of a scatter or imshow).
+    font_size : float. Font size for the colorbar.
     label : str. Label for the colorbar.
     label_pad : float. Padding for the colorbar label.
-    pad : float. Padding for the colorbar.
-    axis : str. Axis for the colorbar. Default is 'y'.
-    orientation : str. Orientation of the colorbar. Default is 'vertical'.
-    rotation : int. Rotation of the colorbar label. Default is 270.
-    side : str. Side for the colorbar. Default is 'right'.
-    ticks : int. Number of ticks on the colorbar.
-    tickw : float. Width of the ticks.
-    tickl : float. Length of the ticks.
-    tickdir : str. Direction of the ticks. Default is 'out'.
+    orientation : str. Orientation of the colorbar ('horizontal' or 'vertical').
+    rotation : float. Rotation of the colorbar label.
+    side : str. Side of the colorbar ('bottom', 'top', 'left', 'right').
+    vmin : float. Minimum value for the colorbar.
+    vmax : float. Maximum value for the colorbar.
+    size : float. Thickness of the colorbar (in figure fraction).
+    pad : float. Padding between the plot and the colorbar (in figure fraction).
+    ticks : int. Number of ticks on the colorbar. If None, automatic ticks are used.
+    tickw : float. Width of the colorbar ticks.
+    tickl : float. Length of the colorbar ticks.
+    tickdir : str. Direction of the colorbar ticks ('in', 'out', 'inout').
 
     Returns
     -------
-    cbar : matplotlib.colorbar.Colorbar. The colorbar object.
+    cbar : matplotlib.colorbar.Colorbar. The created colorbar.
     """
 
-    # Create a divider for the axes
-    divider = make_axes_locatable(ax)
+    # Get figure and position of the plot
+    fig = ax.figure
+    bbox = ax.get_position()
 
-    # Add a new axis for the colorbar
-    cax = divider.append_axes(side, size=size, pad=pad)
+    # Depending on orientation, compute colorbar position and create it
+    if orientation == 'horizontal':
+        # Compute dimensions
+        width = bbox.width
+        height = size
+        left = bbox.x0
+        # Compute bottom position based on side
+        if side == 'bottom':
+            bottom = bbox.y0 - pad*bbox.height - height
+        elif side == 'top':
+            bottom = bbox.y0 + bbox.height + pad*bbox.height
+        else:
+            raise ValueError("For horizontal colorbar, side must be 'bottom' or 'top'")
+        # Create colorbar axes
+        cbar_ax = fig.add_axes([left, bottom, width, height])
+        # Create colorbar
+        cbar = fig.colorbar(plot, cax=cbar_ax, orientation='horizontal')
+        # Customize ticks
+        cbar.ax.tick_params(axis='x', direction=tickdir, labelsize=font_size, width=tickw, length=tickl,
+                            bottom=(side=='bottom'), top=(side=='top'))
+        # Set tick positions and label positions
+        cbar.ax.xaxis.set_ticks_position(side)
+        cbar.ax.xaxis.set_label_position(side)
+        if label is not None:
+            cbar.set_label(label, labelpad=label_pad, rotation=rotation, size=font_size)
+        if ticks is not None:
+            tick_values = np.linspace(vmin, vmax, ticks)
+            cbar.set_ticks(tick_values)
+            cbar.ax.set_xticklabels([f"{v:.2f}" for v in tick_values])
+    else:
+        # Compute dimensions
+        height = bbox.height
+        width = size
+        bottom = bbox.y0
+        # Compute left position based on side
+        if side == 'right':
+            left = bbox.x0 + bbox.width + pad
+        elif side == 'left':
+            left = bbox.x0 - pad - width
+        else:
+            raise ValueError("For vertical colorbar, side must be 'left' or 'right'")
+        # Create colorbar axes
+        cbar_ax = fig.add_axes([left, bottom, width, height])
+        # Create colorbar
+        cbar = fig.colorbar(plot, cax=cbar_ax, orientation='vertical')
+        # Set ticks if specified
+        if ticks is not None:
+            tick_values = np.linspace(vmin, vmax, ticks)
+            cbar.set_ticks(tick_values)
+            cbar.ax.set_yticklabels([f"{v:.2f}" for v in tick_values])
+        # Customize ticks
+        cbar.ax.tick_params(axis='y', direction=tickdir, labelsize=font_size, width=tickw, length=tickl,
+                            left=(side=='left'), right=(side=='right'))
+        # Set tick positions and label positions
+        cbar.ax.yaxis.set_ticks_position(side)
+        cbar.ax.yaxis.set_label_position(side)
+        if label is not None:
+            cbar.set_label(label, labelpad=label_pad, rotation=rotation if rotation is not None else
+            (270 if side=='right' else 90), size=font_size)
 
-    # Create the colorbar
-    cb = colorbar(plot, extend='neither', cax=cax)
-    # Set colorbar ticks
-    cb.ax.tick_params(axis=axis, direction=tickdir, labelsize=font_size, width=tickw, length=tickl)
-    if ticks is not None:
-        cb.ax.yaxis.set_major_locator(plt.MaxNLocator(ticks))
-
-    # Force scientific notation
-    cb.formatter.set_scientific(True)
-    cb.formatter.set_powerlimits((0, 0))
-    cb.formatter.set_useMathText(True)
-
-    # Set colorbar label
-    if label is not None:
-        # Set rotation based on orientation
-        if rotation is None:
-            rotation = 270 if orientation == 'vertical' else 0
-        cb.set_label(label, labelpad=label_pad, rotation=rotation, size=font_size)
-
-    return cb
+    return cbar
 
 
-def compute_min_max(data, symmetric=False):
+def compute_min_max(data: np.ndarray, symmetric=False):
     """ Compute the minimum and maximum values of the data.
 
     Parameters
@@ -199,8 +253,8 @@ def scatterplot(fig, ax, x, y, font_size=13, projection=None, title='Scatterplot
                 ref_label='Reference (1:1)', ref_color='black', ref_linew=0.5, ref_lines='--',
                 fit=False, fit_color=None, fit_linew=0.25, fit_lines='-',
                 lg_loc='upper left', lg_font=10, lg_ncol=1, lg_npoints=1, lg_scale=4.0, lg_spacing=0.05,
-                cb_label='Density', cb_size=0.2, cb_ticks=5, cb_axis="y", cb_pad=0, cb_tickw=1,
-                cb_tickl=2.5, cb_dir='out', cb_rot=270, cb_labelpad=16, cb_side='right'):
+                cb_label='Density', cb_cmap=None, cb_pad=0, cb_tickw=1, cb_tickl=2.5, cb_font=12, cb_dir='out',
+                cb_rot=270, cb_labelpad=15.5, cb_side='right', cb_size=0.025, cb_ticks=5,):
     """ Create a scatterplot with optional density projection.
 
     Parameters
@@ -248,7 +302,8 @@ def scatterplot(fig, ax, x, y, font_size=13, projection=None, title='Scatterplot
     cb_label : str. Label for the colorbar.
     cb_size : float. Size of the colorbar.
     cb_ticks : int. Number of ticks on the colorbar.
-    cb_axis : str. Axis for the colorbar. Default is 'y'.
+    cb_font : int. Font size for the colorbar.
+    cb_cmap : str. Colormap for the colorbar.
     cb_pad : float. Padding for the colorbar.
     cb_tickw : float. Width of the colorbar ticks.
     cb_tickl : float. Length of the colorbar ticks.
@@ -328,19 +383,19 @@ def scatterplot(fig, ax, x, y, font_size=13, projection=None, title='Scatterplot
 
     # Set colorbar
     if projection == 'scatter_density':
-        apply_colorbar(ax, scat, size=cb_size, font_size=font_size, label=cb_label, label_pad=cb_labelpad,
-                       pad=cb_pad, axis=cb_axis, orientation='vertical', rotation=cb_rot, side=cb_side,
+        apply_colorbar(ax, scat, font_size=cb_font, label=cb_label, label_pad=cb_labelpad, orientation='vertical',
+                       rotation=cb_rot, side=cb_side, size=cb_size, pad=cb_pad,
                        ticks=cb_ticks, tickw=cb_tickw, tickl=cb_tickl, tickdir=cb_dir)
 
 
 def plot_map(ax, img, img_alpha=1.0, img_norm='linear', img_coord=(0, 0), img_shape=None, img_pixel=(1, 1),
              img_ticks=None, img_labels=('y-axis', 'x-axis'), title=None, img_labelspad=(5, 3), img_tickw=1,
-             img_tickl=2.5, img_tickdir='out', title_pad=1.005, cb_label=None, img_range=None, cb_cmap=None,
-             cb_pad=0, cb_tickw=1, cb_tickl=2.5, cb_font=12, cb_dir='out', cb_rot=270, cb_labelpad=15.5,
-             cb_side='right', cb_size=0.2, cb_ticks=5, cb_axis="y",
-             plt_coord=None, plt_color='black', plt_linew=1, plt_lines='-', plt_symbl='',
-             vec=None, vec_coord=None, vec_step=1, vec_scale=1, vec_width=0.1, vec_hwidth=2, vec_hlength=4,
-             vec_haxislength=4.5, vec_color='black', vec_qlength=1, vec_labelsep=0.05,
+             img_tickl=2.5, img_tickdir='out', title_pad=1.005, cb_label=None, img_range=None,
+             cb_cmap=None, cb_pad=0, cb_tickw=1, cb_tickl=2.5, cb_font=12, cb_dir='out', cb_rot=270, cb_labelpad=15.5,
+             cb_side='right', cb_size=0.025, cb_ticks=5,
+             plt_coord=None, plt_color='black', plt_linew=1, plt_lines='-', plt_symbl='', plt_origin='lower',
+             vec=None, vec_coord=None, vec_step=1, vec_scale=1, vec_width=1, vec_hwidth=1, vec_hlength=1,
+             vec_haxislength=1, vec_color='black', vec_qlength=1, vec_labelsep=0.05,
              vec_qdecimals=2, vec_qscale=1, vec_qunits='', font_size=13):
     """ Plot a map with optional vectors and colorbar.
 
@@ -374,12 +429,12 @@ def plot_map(ax, img, img_alpha=1.0, img_norm='linear', img_coord=(0, 0), img_sh
     cb_side : str. Side for the colorbar. Default is 'right'.
     cb_size : float. Size of the colorbar. Default is 0.05*4/(0.8+0.8+4).
     cb_ticks : int. Number of ticks on the colorbar. Default is 5.
-    cb_axis : str. Axis for the colorbar. Default is 'y'.
     plt_coord : list. Coordinates for the plot. Default is None.
     plt_color : str. Color for the plot. Default is 'black'.
     plt_linew : float. Line width for the plot. Default is 1.
     plt_lines : str. Line style for the plot. Default is '-'.
     plt_symbl : str. Marker style for the plot. Default is ''.
+    plt_origin : str. Origin for the plot. Default is 'lower'.
     vec : numpy.ndarray. Vectors to plot. Default is None.
     vec_coord : tuple. Coordinates for the vectors. Default is None.
     vec_step : int. Step size for the vectors. Default is 1.
@@ -401,17 +456,19 @@ def plot_map(ax, img, img_alpha=1.0, img_norm='linear', img_coord=(0, 0), img_sh
     None.
     """
 
-
+    # Extract image shape if not provided
     if img_shape is None:
         img_shape = img.shape
+
     # Extract subpatch
     img_plot = img[img_coord[0]:img_coord[0] + img_shape[0], img_coord[1]:img_coord[1] + img_shape[1]]
+
     # Spatial extent
     extent = np.array([
-        img_pixel[0] * img_coord[0],
-        img_pixel[0] * (img_coord[0] + img_shape[0]),
         img_pixel[1] * img_coord[1],
-        img_pixel[1] * (img_coord[1] + img_shape[1])
+        img_pixel[1] * (img_coord[1] + img_shape[1]),
+        img_pixel[0] * img_coord[0],
+        img_pixel[0] * (img_coord[0] + img_shape[0])
     ])
 
     # Colormap
@@ -425,31 +482,23 @@ def plot_map(ax, img, img_alpha=1.0, img_norm='linear', img_coord=(0, 0), img_sh
     # Plot image
     I = ax.imshow(
         img_plot, extent=extent, cmap=cmap, vmin=img_range[0], vmax=img_range[1],
-        aspect=1, interpolation='none', alpha=img_alpha, origin='lower', norm=img_norm
+        aspect=1, interpolation='none', alpha=img_alpha, origin=plt_origin, norm=img_norm
     )
 
     # Plot vectors
-    if vec is not None:
-
-        # Assign coordinates
-        if vec_coord is None:
-            #vec_coord = (np.arange(img_coord[0], img_coord[0] + img_shape[0], 1),
-            #             np.arange(img_coord[1], img_coord[1] + img_shape[1], 1))
-            vec_coord = (np.arange(extent[0], extent[1], img_pixel[0]),
-                         np.arange(extent[2], extent[3], img_pixel[1]))
-
+    if vec is not None and vec_coord is not None:
         q = ax.quiver(
-            vec_coord[0][::vec_step], vec_coord[1][::vec_step],
-            vec[0][::vec_step, ::vec_step], vec[1][::vec_step, ::vec_step],
+            vec_coord[1][::vec_step, ::vec_step], vec_coord[0][::vec_step, ::vec_step],
+            vec[1][::vec_step, ::vec_step], vec[0][::vec_step, ::vec_step],
             units='xy', scale=vec_scale, width=vec_width, headwidth=vec_hwidth,
             headlength=vec_hlength, headaxislength=vec_haxislength, pivot='tail', scale_units='xy',
             color=vec_color
         )
         qk_label = str(np.around(vec_qlength, decimals=vec_qdecimals))
-        #ax.quiverkey(
-        #    q, 0.9, 0.05, vec_qlength * vec_qscale, qk_label + f' {vec_qunits}',
-        #    labelpos='E', coordinates='axes', fontproperties={'size': str(cb_font)}, labelsep=vec_labelsep
-        #)
+        ax.quiverkey(
+            q, 0.9, 0.05, vec_qlength * vec_qscale, qk_label + f' {vec_qunits}',
+            labelpos='E', coordinates='axes', fontproperties={'size': str(cb_font)}, labelsep=vec_labelsep
+        )
 
     # Overplot patch boundaries
     if plt_coord is not None:
@@ -458,28 +507,28 @@ def plot_map(ax, img, img_alpha=1.0, img_norm='linear', img_coord=(0, 0), img_sh
             ax.plot(x, y, color=plt_color, linewidth=plt_linew, linestyle=plt_lines, marker=plt_symbl)
 
     # Set axis ticks
-    ax.get_yaxis().set_tick_params(
-        which='both', direction=img_tickdir, width=img_tickw, length=img_tickl,
-        labelsize=cb_font, left=True, right=True
-    )
-    ax.get_xaxis().set_tick_params(
-        which='both', direction=img_tickdir, width=img_tickw, length=img_tickl,
-        labelsize=cb_font, bottom=True, top=True
-    )
+    ax.get_yaxis().set_tick_params(which='both', direction=img_tickdir, width=img_tickw, length=img_tickl,
+                                   labelsize=cb_font, left=True, right=True)
+    ax.get_xaxis().set_tick_params(which='both', direction=img_tickdir, width=img_tickw, length=img_tickl,
+                                   labelsize=cb_font, bottom=True, top=True)
     if img_ticks is not None:
         ax.get_yaxis().set_major_locator(plt.MultipleLocator(img_ticks[0]))
         ax.get_xaxis().set_major_locator(plt.MultipleLocator(img_ticks[1]))
+
+
     # Set axis labels
     ax.set_ylabel(img_labels[0], fontsize=cb_font, labelpad=img_labelspad[0])
     ax.set_xlabel(img_labels[1], fontsize=cb_font, labelpad=img_labelspad[1])
+
+
     # Title
     if title is not None:
         ax.set_title(title, fontsize=font_size, y=title_pad, wrap=True)
 
     # Set colorbar
     if I is not None:
-        apply_colorbar(ax, I, size=cb_size, font_size=cb_font, label=cb_label, label_pad=cb_labelpad,
-                       pad=cb_pad, axis=cb_axis, orientation='vertical', rotation=cb_rot, side=cb_side,
+        apply_colorbar(ax, I, font_size=cb_font, label=cb_label, label_pad=cb_labelpad, orientation='vertical',
+                       rotation=cb_rot, side=cb_side, vmin=img_range[0], vmax=img_range[1], size=cb_size, pad=cb_pad,
                        ticks=cb_ticks, tickw=cb_tickw, tickl=cb_tickl, tickdir=cb_dir)
 
 
@@ -537,12 +586,16 @@ def fig_patches(target: np.ndarray, pred: np.ndarray, title_prefix: str = '', im
     n_samples, ny, nx, n_channels = target.shape
 
     # Create a flexible gridspec
-    # From n_profiles, determine optimal layout for flexible_gridspec
-    n_rows = 2  # int(np.ceil(np.sqrt(n_channels)))
-    n_cols = n_channels
+    n_rows = int(np.ceil(np.sqrt(n_channels)))
+    n_cols = int(np.ceil(n_channels / n_rows))
     # Create a flexible gridspec
-    list_cols = [n_cols for _ in range(n_rows)]
-    fig, get_axes = flexible_gridspec(list_cols, cell_width=4, cell_height=4)
+    cell_widths = [4.0] * n_cols
+    cell_heights = [4.0] * n_rows
+    lefts = [0.75] * n_cols
+    rights = [0.75] * n_cols
+    bottoms = [0.75] * n_rows
+    tops = [0.75] * n_rows
+    fig, get_axes = flexible_gridspec(cell_widths, cell_heights, lefts, rights, bottoms, tops)
 
     # Loop over variables
     for v in range(n_channels):

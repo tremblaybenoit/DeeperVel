@@ -1,17 +1,11 @@
 import sys
 import torch
-from typing import Callable, Tuple, Union, Any
+from typing import Union, Any
 from omegaconf import DictConfig
 from pytorch_lightning import LightningModule
 import torch.nn as nn
 import numpy as np
 from track.utilities.instantiators import instantiate
-import psutil
-import os
-
-def get_ram_usage_gb():
-    process = psutil.Process(os.getpid())
-    return process.memory_info().rss / 1024 ** 3  # RAM in GB
 
 
 def same_padding(kernel_size: int, stride: int) -> int:
@@ -32,7 +26,7 @@ def same_padding(kernel_size: int, stride: int) -> int:
 class ResidualBlock(nn.Module):
     """Residual block for neural network architecture."""
     def __init__(self, n_filters: int = 64, kernel_size: int = 3, stride: int = 1, padding: int = 1,
-                 activation: Callable = None) -> None:
+                 activation: DictConfig = None) -> None:
         """ Initialize residual block.
 
             Parameters
@@ -85,16 +79,15 @@ class ResidualBlock(nn.Module):
 
 class BaseModel(LightningModule):
 
-    def __init__(self, optimizer: Callable = None, lr_scheduler: Callable = None,
-                 loss_func: Callable = None, log_valid: bool = False) \
-            -> None:
+    def __init__(self, optimizer: DictConfig = None, lr_scheduler: DictConfig = None,
+                 loss_func: DictConfig = None, log_valid: bool = False) -> None:
         """ Initialize the base neural network model. Enables class inheritance.
 
             Parameters
             ----------
-            optimizer: Callable. Choice of optimizer and corresponding parameters.
-            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
-            loss_func: Callable. Loss function to use.
+            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
+            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            loss_func: DictConfig. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
             Returns
@@ -110,25 +103,25 @@ class BaseModel(LightningModule):
         # Learning rate scheduler
         self.lr_scheduler = lr_scheduler
         # Loss function
-        self.loss_func = loss_func
+        self.loss_func = instantiate(loss_func) if loss_func is not None else None
         # Store hyperparameters
         self.save_hyperparameters(ignore=['optimizer', 'lr_scheduler', 'loss_func'])
 
-        # Test set results
-        self.test_result = []
         # Validation set results
         self.log_valid = log_valid
         if self.log_valid:
             self.valid_result = []
             self.valid_target = []
+        # Test set results
+        self.test_result = []
 
-    def base_step(self, batch: torch.Tensor, batch_nb: int, stage: str) \
-            -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    def base_step(self, batch: dict, batch_nb: int, stage: str) \
+            -> torch.Tensor:
         """ Perform training/validation/test step.
 
             Parameters
             ----------
-            batch: tensor. Batch from the training set.
+            batch: dict. Batch from the training set.
             batch_nb: int. Index of the batch out of the training set.
             stage: str. Current operation: "train", "valid", or "test".
 
@@ -137,51 +130,55 @@ class BaseModel(LightningModule):
             Loss value: tensor.
         """
 
-        # Extract data from batch
-        ram_before = get_ram_usage_gb()
-        x, y = batch
-        ram_after = get_ram_usage_gb()
-        print(f"[base_step] 1 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
-
         # Forward pass
-        y_pred = self(x)
-        ram_after = get_ram_usage_gb()
-        print(f"[base_step] 2 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
+        pred = self(batch['input'])
+
         # Compute loss function
-        loss = self.loss_func(y_pred, y)
-        ram_after = get_ram_usage_gb()
-        print(f"[base_step] 3 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
+        loss = self.loss_func(pred, batch['target'])
 
         # Compute metrics (for diagnostic purposes)
         epsilon = sys.float_info.min
         # Mean relative absolute error
-        rae = torch.nanmedian(torch.abs((y - y_pred) / (torch.abs(y) + epsilon)) * 100)
+        rae = torch.abs((batch['target'] - pred) / (torch.abs(batch['target']) + epsilon)) * 100
         # Mean absolute error
-        mae = torch.nanmean(torch.abs(y - y_pred))
+        mae = torch.abs(batch['target'] - pred)
 
-        # Log metrics
-        if stage in ['train', 'valid']:
-            self.log(f"{stage}_loss", loss, on_epoch=True, prog_bar=True, logger=True)
-            self.log(f"{stage}_MAE", mae, on_epoch=True, prog_bar=False, logger=True)
-            self.log(f"{stage}_RAE", rae, on_epoch=True, prog_bar=False, logger=True)
-
-        # For test set...
+        # If testing, return predictions in addition to loss
         if stage == 'test':
+            # Log metrics
+            logger_flag = False
             # Store test outputs
-            self.test_result.append(y_pred.detach().cpu().numpy())
-        # For validation set...
+            for k in range(batch['target'].shape[-1]):
+                if k not in self.test_result:
+                    self.test_result[k] = []
+                self.test_result[k].append(pred[:, k].detach().cpu().numpy())
         elif stage == 'valid':
-            # Store validation outputs and targets
-            self.valid_result.append(y_pred.detach().cpu().numpy())
-            self.valid_target.append(y.detach().cpu().numpy())
+            # Log metrics
+            logger_flag = True
+            # Store validation outputs
+            if self.log_valid:
+                for k in range(batch['target'].shape[-1]):
+                    if k not in self.valid_result:
+                        self.valid_result[k] = []
+                    self.valid_result[k].append(pred[:, k].detach().cpu().numpy())
+                    if k not in self.valid_target:
+                        self.valid_target[k] = []
+                    self.valid_target[k].append(batch['target'][:, k].detach().cpu().numpy())
+        else:
+            # Log metrics
+            logger_flag = True
+            # Compute L2 norm of the model parameters
+            l2_norm = sum((p ** 2).sum() for p in self.parameters() if p.requires_grad)
+            self.log(f"{stage}_l2_norm", l2_norm, on_epoch=True, prog_bar=False, logger=logger_flag)
 
-        ram_after = get_ram_usage_gb()
-        print(f"[base_step] 4 Batch: {batch_nb}, RAM before: {ram_before:.3f} GB, after: {ram_after:.3f} GB")
-        breakpoint()
+        # Log metrics (over all data and over channels)
+        self.log(f"{stage}_loss", loss.mean(), on_epoch=True, prog_bar=True, logger=logger_flag)
+        self.log(f"{stage}_MAE", mae.mean(), on_epoch=True, prog_bar=False, logger=logger_flag)
+        self.log(f"{stage}_RAE", rae.median(), on_epoch=True, prog_bar=False, logger=logger_flag)
 
         return loss
 
-    def training_step(self, batch: torch.Tensor, batch_nb: int) -> torch.Tensor:
+    def training_step(self, batch: dict, batch_nb: int) -> torch.Tensor:
         """ Perform the training step.
 
             Parameters
@@ -196,12 +193,12 @@ class BaseModel(LightningModule):
 
         return self.base_step(batch, batch_nb, stage='train')
 
-    def validation_step(self, batch: torch.Tensor, batch_nb: int) -> torch.Tensor:
+    def validation_step(self, batch: dict, batch_nb: int) -> torch.Tensor:
         """ Perform the validation step.
 
             Parameters
             ----------
-            batch: tensor. Batch from the validation set.
+            batch: Dict. Batch from the validation set.
             batch_nb: int. Index of the batch out of the validation set.
 
             Returns
@@ -211,12 +208,12 @@ class BaseModel(LightningModule):
 
         return self.base_step(batch, batch_nb, stage='valid')
 
-    def test_step(self, batch: torch.Tensor, batch_nb: int) -> torch.Tensor:
+    def test_step(self, batch: dict, batch_nb: int) -> torch.Tensor:
         """ Perform the test step.
 
             Parameters
             ----------
-            batch: tensor. Batch from the test set.
+            batch: Dict. Batch from the test set.
             batch_nb: int. Index of the batch out of the test set.
 
             Returns
@@ -226,21 +223,21 @@ class BaseModel(LightningModule):
 
         return self.base_step(batch, batch_nb, stage='test')
 
-    def on_validation_epoch_start(self) -> None:
-        """ Perform validation epoch start.
+    def predict_step(self, batch: dict, batch_nb: int):
+        """ Perform prediction step.
 
             Parameters
             ----------
-            None.
+            batch: dict. Batch from the prediction set.
+            batch_nb: int. Index of the batch out of the prediction set.
 
             Returns
             -------
-            None.
+            Predicted values: tensor.
         """
 
-        # Clear the lists for the next epoch
-        self.valid_result = []
-        self.valid_target = []
+        # Forward pass through the model
+        return self(batch['input'])
 
     def on_validation_epoch_end(self) -> None:
         """ Perform validation epoch end.
@@ -271,8 +268,9 @@ class BaseModel(LightningModule):
             None.
         """
 
-        # Clear the list for the next epoch
-        self.test_result.clear()
+        # Empty lists for test results
+        for k in self.test_results:
+            self.test_result[k] = []
 
     def on_test_epoch_end(self) -> None:
         """ Perform the test epoch end.
@@ -287,7 +285,8 @@ class BaseModel(LightningModule):
         """
 
         # Aggregate test results
-        self.test_result = np.concatenate(self.test_result, axis=0)
+        for k in self.test_results:
+            self.test_results[k] = np.concatenate(self.test_results[k], axis=0).transpose(0, 2, 3, 1)  # type: ignore
 
     def configure_optimizers(self) -> Union[dict[str, Union[torch.optim.Optimizer, dict[str, Any]]], None]:
         """ Instantiate optimizer.
@@ -328,14 +327,33 @@ class BaseModel(LightningModule):
             return optimizer
         return None
 
+    def to(self, device, dtype: torch.dtype =None, non_blocking: bool = False) -> 'BaseModel':
+        """ Move the model and loss function to the specified device.
+
+        Parameters
+        ----------
+        device: torch.device. The device to move the model and loss function to.
+        dtype: torch.dtype. The desired data type of the model parameters (optional).
+        non_blocking: bool. If True, and the source is in pinned memory, the
+
+        Returns
+        -------
+        BaseModel. The instance with model and loss function moved to the specified device.
+        """
+
+        super().to(device, dtype=dtype, non_blocking=non_blocking)
+        if hasattr(self.loss_func, 'to'):
+            self.loss_func = self.loss_func.to(device)
+        return self
+
 
 class DeepVelModel(BaseModel):
     """
     DeepVel neural network model (Asensio Ramos et al., 2017).
     """
     def __init__(self, n_in_channels: int, n_out_channels: int, n_filters: int = 64, kernel_size: int = 3,
-                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: Callable = None,
-                 optimizer: Callable = None, lr_scheduler: Callable = None, loss_func: Callable = None,
+                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: DictConfig = None,
+                 optimizer: DictConfig = None, lr_scheduler: DictConfig = None, loss_func: DictConfig = None,
                  log_valid: bool = False) -> None:
         """ Initialize DeepVel neural network model.
 
@@ -348,10 +366,10 @@ class DeepVelModel(BaseModel):
             n_conv_layers: int. Number of convolutional layers in residual block.
             stride: int. Stride of the convolutional layers.
             padding: int. Padding for the convolutional layers.
-            activation: Callable. Activation function of the convolutional layers.
-            optimizer: Callable. Choice of optimizer and corresponding parameters.
-            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
-            loss_func: Callable. Loss function to use.
+            activation: DictConfig. Activation function of the convolutional layers.
+            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
+            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            loss_func: DictConfig. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
             Returns
@@ -397,8 +415,8 @@ class DeepVelUModel(BaseModel):
     DeepVelU neural network model (Tremblay & Attié, 2020).
     """
     def __init__(self, n_in_channels: int, n_out_channels: int, n_filters: int = 64, kernel_size: int = 3,
-                 depth: int = 3, dropout: float = 0.5, activation: Callable = None, optimizer: Callable = None,
-                 lr_scheduler: Callable = None, loss_func: Callable = None, log_valid: bool = False) -> None:
+                 depth: int = 3, dropout: float = 0.5, activation: DictConfig = None, optimizer: DictConfig = None,
+                 lr_scheduler: DictConfig = None, loss_func: DictConfig = None, log_valid: bool = False) -> None:
         """ Initialize DeepVelU neural network model.
 
             Parameters
@@ -409,10 +427,10 @@ class DeepVelUModel(BaseModel):
             kernel_size: int. Size of the convolutional kernel.
             depth: int. Depth of the U-Net architecture.
             dropout: float. Dropout rate for the convolutional layers.
-            activation: Callable. Activation function of the convolutional layers.
-            optimizer: Callable. Choice of optimizer and corresponding parameters.
-            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
-            loss_func: Callable. Loss function to use.
+            activation: DictConfig. Activation function of the convolutional layers.
+            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
+            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            loss_func: DictConfig. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
             Returns
@@ -526,8 +544,8 @@ class DeeperVelModel(BaseModel):
     DeeperVel neural network model (Tremblay & Rempel, in prep.).
     """
     def __init__(self, n_in_channels: int, n_out_channels: int, n_filters: int = 64, kernel_size: int = 3,
-                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: Callable = None,
-                 optimizer: Callable = None, lr_scheduler: Callable = None, loss_func: Callable = None,
+                 n_conv_layers: int = 20, stride: int = 1, padding: int = None, activation: DictConfig = None,
+                 optimizer: DictConfig = None, lr_scheduler: DictConfig = None, loss_func: DictConfig = None,
                  log_valid: bool = False) -> None:
         """ Initialize DeeperVel neural network model.
 
@@ -540,10 +558,10 @@ class DeeperVelModel(BaseModel):
             n_conv_layers: int. Number of convolutional layers in residual block.
             stride: int. Stride of the convolutional layers.
             padding: int. Padding for the convolutional layers.
-            activation: Callable. Activation function of the convolutional layers.
-            optimizer: Callable. Choice of optimizer and corresponding parameters.
-            lr_scheduler: Callable. Choice of learning rate scheduler and corresponding parameters.
-            loss_func: Callable. Loss function to use.
+            activation: DictConfig. Activation function of the convolutional layers.
+            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
+            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            loss_func: DictConfig. Loss function to use.
             log_valid: bool; default=False. Flag to log validation metrics.
 
             Returns
@@ -583,3 +601,31 @@ class DeeperVelModel(BaseModel):
             y: tensor. Outputs.
         """
         return self.model(x)
+
+
+class MultiScaleDL(BaseModel):
+    """
+    Multi-scale deep learning model (Ishikawa et al., 2022).
+    """
+    def __init__(self, activation: DictConfig = None, optimizer: DictConfig = None,
+                 lr_scheduler: DictConfig = None, loss_func: DictConfig = None, log_valid: bool = False) -> None:
+        """ Initialize MultiScaleDL neural network model.
+
+            Parameters
+            ----------
+            activation: DictConfig. Activation function of the convolutional layers.
+            optimizer: DictConfig. Choice of optimizer and corresponding parameters.
+            lr_scheduler: DictConfig. Choice of learning rate scheduler and corresponding parameters.
+            loss_func: DictConfig. Loss function to use.
+            log_valid: bool; default=False. Flag to log validation metrics.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Class inheritance
+        super().__init__(optimizer=optimizer, lr_scheduler=lr_scheduler, loss_func=loss_func, log_valid=log_valid)
+
+        # TODO: Implement model
+        raise NotImplementedError("MultiScaleDL model is not yet implemented.")

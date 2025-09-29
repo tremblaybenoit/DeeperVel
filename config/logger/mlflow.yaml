@@ -8,5 +8,7 @@ mlflow:
     dataset: "MURaMQS"  # Dataset name
     user: "tracking_trainer"  # User name
     version: "0.5"  # Version of the project
+ports:
+  mlflow: 5000  # Port for the MLflow server
 offline: True  # Whether to log offline
 ui: True  # Whether to open the UI after logging

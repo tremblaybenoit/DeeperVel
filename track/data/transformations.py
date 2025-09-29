@@ -18,19 +18,26 @@ def broadcast(var1: Union[np.ndarray, torch.Tensor], var2: Union[np.ndarray, tor
         var2: Broadcast to the same number of dimensions as var1.
     """
 
+    # Handle Python float/int or NumPy scalar
+    if isinstance(var2, (float, int, np.floating, np.integer)):
+        if isinstance(var1, torch.Tensor):
+            var2 = torch.tensor(var2, dtype=var1.dtype, device=var1.device)
+        elif isinstance(var1, np.ndarray):
+            var2 = np.array(var2, dtype=var1.dtype)
     # For Numpy arrays
-    if isinstance(var2, np.ndarray):
+    elif isinstance(var2, np.ndarray):
         var2 = np.reshape(var2, (1,) * (var1.ndim - var2.ndim) + var2.shape)
         # Convert to torch tensor if var1 is a torch tensor
         if isinstance(var1, torch.Tensor):
-            var2 = torch.from_numpy(var2)
+            var2 = torch.from_numpy(var2).to(var1.device, dtype=var1.dtype)
     # For Torch tensors
     elif isinstance(var2, torch.Tensor):
         var2 = var2.view((1,) * (var1.ndim - var2.ndim) + var2.shape)
         # Convert to numpy if var1 is a numpy array
         if isinstance(var1, np.ndarray):
             var2 = var2.cpu().numpy()
-
+        else:
+            var2 = var2.to(var1.device, dtype=var1.dtype)
     return var2
 
 
@@ -56,7 +63,9 @@ def multiplication(data: Union[np.ndarray, torch.Tensor], factor: Union[np.ndarr
     # Unstandardization or standardization
     if inverse_transform:
         # Divide
-        data_transform = data / scaling_factor
+        eps = np.finfo(scaling_factor.dtype).eps if isinstance(scaling_factor, np.ndarray) \
+            else torch.finfo(scaling_factor.dtype).eps
+        data_transform = data / (scaling_factor + eps)  # Avoid division by zero
     else:
         # Multiply
         data_transform = data * scaling_factor
@@ -324,7 +333,6 @@ def augment_vector(data_x: Union[np.ndarray, torch.Tensor], data_y: Union[np.nda
     # Apply transformations for both x and y components.
     # Account for the changes in sign, and the fact that the x and y components are swapped
     # when rotating by 90 degrees.
-    # Account for sign changes
     if n_flip is not None:
         data_x = flip(data_x, n=n_flip, inverse_transform=inverse_transform)
         data_y = flip(data_y, n=n_flip, inverse_transform=inverse_transform)
@@ -363,18 +371,15 @@ def geometric_augmentation(data: Union[np.ndarray, torch.Tensor, tuple[np.ndarra
         data_transform: arr or tensor. Transformed dataset.
     """
 
-    # Copy data to avoid in-place modification
-    data_aug = data.copy()
-
     # Vector augmentation
     for vpair in [("vx", "vy"), ("Bx", "By")]:
         if all(v in vars for v in vpair):
             idx_x, idx_y = vars.index(vpair[0]), vars.index(vpair[1])
-            data_aug[..., idx_x], data_aug[..., idx_y] = augment_vector(data[..., idx_x], data[..., idx_y],
-                                                                        n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+            data[..., idx_x], data[..., idx_y] = augment_vector(data[..., idx_x], data[..., idx_y],
+                                                                n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
     # Scalar augmentation
     for scalar in ["I500", "vz", "Bz"]:
         if scalar in vars:
             idx = vars.index(scalar)
-            data_aug[..., idx] = augment_scalar(data[..., idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
-    return data_aug
+            data[..., idx] = augment_scalar(data[..., idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+    return data

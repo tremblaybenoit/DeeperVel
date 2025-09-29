@@ -1,22 +1,29 @@
-from typing import List, Union, Callable
+from typing import List, Union, Any
 import hydra
 from pytorch_lightning import Callback
 from pytorch_lightning.loggers import Logger
 from omegaconf import DictConfig
 from functools import partial
+import logging
 
 
-def instantiate(config: Union[DictConfig, Callable], **kwargs):
-    """ Instantiate module or callable class/function from config.
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+
+def instantiate(config: Any, **kwargs):
+    """ Instantiate data module or module from config.
 
         Parameters
         ----------
         config: A DictConfig object containing configurations, or a callable class/function.
-        kwargs: Optional keyword arguments.
+        kwargs: Optional keyword arguments. This includes:
+                _partial_ for partial instantiation;
+                _recursive_ for recursive instantiation.
 
         Returns
         -------
-        Instance of module/function/class.
+        Instance of module.
     """
 
     # If DictConfig object is provided
@@ -25,21 +32,20 @@ def instantiate(config: Union[DictConfig, Callable], **kwargs):
         # Instantiate module
         return hydra.utils.instantiate(config, **kwargs)
 
-    elif callable(config):
+    # If callable object is provided
+    elif callable(config) and not isinstance(config, partial):
 
         # Check for partial instantiation
-        partial_flag = kwargs.get("_partial_", None)
+        partial_flag = kwargs.pop("_partial_", False)
 
-        # If partial, return partially instantiated function/class
+        # If partial, return partially instantiated object
         if partial_flag:
             return partial(config, **kwargs)
 
-        # Otherwise, instantiate the callable class/function
+        # If not partial, return the callable object
         return config(**kwargs)
-
-    # If neither DictConfig nor callable object is provided
     else:
-        raise TypeError("Config must be a DictConfig or a callable object!")
+        return config
 
 
 def instantiate_list(config_list: DictConfig, obj_type: str, **kwargs) -> List[Union[Callback, Logger]]:
@@ -66,6 +72,7 @@ def instantiate_list(config_list: DictConfig, obj_type: str, **kwargs) -> List[U
 
     # Config provided, but in the wrong format
     if not isinstance(config_list, DictConfig):
+        log.error(f"{obj_type} config must be a DictConfig!")
         raise TypeError(f"{obj_type} config must be a DictConfig!")
 
     # If multiple objects are provided

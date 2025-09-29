@@ -1,15 +1,21 @@
 # Note: The order of defaults determines the order in which configs override each other.
 defaults:
-  - data: muramar
-  - loader: default
   - hydra: default
   - paths: default
-  - model: deepvel
-  - trainer: default
+  - data: MURaMQS
+  - preparation: default
+  - loader: default
+  - model: DeepVel
+  - trainer: gpu
   - callbacks: default
   - logger: default
   - _self_
 
 # Task name. Note that it determines the output directory path
-task_name: "deepvel"  # Experiment
-task_seed: 3110  # For reproducibility
+task_name: "default"  # Experiment
+task_seed: 3210  # For reproducibility
+
+paths:
+  task_dir: "../tracking_outputs"
+  run_id: "version_001"
+  data_dir: "E:\\Data/ISSI_Team_Flows/Matthias/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/2D"

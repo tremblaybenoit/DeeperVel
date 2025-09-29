@@ -2,7 +2,6 @@ import numpy as np
 from typing import Dict, Union, Tuple
 from omegaconf import DictConfig
 from track.utilities.instantiators import instantiate
-from track.utilities.logic import get_config_path
 
 
 def preprocess(data: np.ndarray, config: DictConfig, stats: Dict = None, scaling: bool=True, transform: bool=True) \

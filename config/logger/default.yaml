@@ -7,6 +7,5 @@ defaults:
   # - wandb
 
 # Global parameters
-name: ${task_name}  # Name of the logging instance
 offline: True  # Whether to log offline
 ui: True  # Whether to open the UI after logging
