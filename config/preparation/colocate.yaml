@@ -1,0 +1,26 @@
+# Locate/extract needed data
+colocate:
+  # Identify training patches
+  patches:
+    # Function
+    _target_: inverse.data.preparation.colocate.colocate
+    _recursive_: false  # Do not instantiate nested objects
+    # Input
+    input:
+      # Number of samples
+      n_samples: 32000
+      # Size of patches
+      size: [48, 48]
+      # Dimensions of the dataset
+      nx: ${data.MURaMQS.I500.properties.nx}
+      ny: ${data.MURaMQS.I500.properties.ny}
+      nt: 300
+      # Range of timesteps to choose from
+      t_range: [0, 300]
+      # Timesteps between samples (0 = same timestep, 1 = nextt timestep, etc.)
+      dt: [0, 1]
+    # Output
+    output:
+      # Path
+      path: ${hydra.run.dir}/patches.pkl
+      type: "file"

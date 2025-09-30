@@ -64,59 +64,53 @@ def generate_indices(x_min: int, x_max: int, y_min: int, y_max: int, t_min: int,
                 if abs(t0 - t) <= dt and x0 <= dx and y0 <= dy:
                     conflict = True
                     break
+            # If no conflict, add cell to selected list
             if not conflict:
                 selected.append(cell)
                 pbar.update(1)
+            # Stop if enough samples are selected
             if len(selected) == size:
                 break
 
+    # If not enough samples are found, raise an error
     if len(selected) < size:
         raise RuntimeError("Could not find enough valid samples with given constraints.")
 
+    # Unzip selected cells into separate lists
     x_out, y_out, t_out = zip(*selected)
     return list(x_out), list(y_out), list(t_out)
 
 
-def colocate(config: DictConfig, save=True) -> dict:
+def colocate(input: DictConfig, output: DictConfig = None) -> dict:
     """ Assign patches for input and output variables.
 
         Parameters
         ----------
-        config : DictConfig. Configuration file containing metadata.
-        save : bool, optional. If True, saves the colocated data to a file, by default True.
+        input: DictConfig. Data configuration.
+        output: DictConfig, optional. If not None, saves the colocated data to a file.
 
         Returns
         -------
         dict. Dictionary containing colocated data with indices for x, y, and t coordinates.
     """
 
-    # Initialize input and output configs
-    data_config = config.input.data
-    patches_config = config.input.patches
-
-    # Initialize data loader
-    io = instantiate(data_config, _partial_=False)
-
     # Constraints for colocated data
     x_min, y_min = 0, 0
-    x_max, y_max = io.nx - patches_config.size[1], io.ny - patches_config.size[0]
-    t_min, t_max = (np.abs(patches_config.t_range[0] + np.amin(patches_config.dt)),
-                    patches_config.t_range[1] - 1 - np.abs(np.amax(patches_config.dt)))
+    x_max, y_max = input.nx - input.size[1], input.ny - input.size[0]
+    t_min, t_max = (np.abs(input.t_range[0] + np.amin(input.dt)), input.t_range[1] - 1 - np.abs(np.amax(input.dt)))
     logger.info("Generating spatiotemporal indices...")
-    x, y, t = generate_indices(x_min, x_max, y_min, y_max, t_min, t_max, patches_config.size[1], patches_config.size[0],
-                               patches_config.n_samples)
+    x, y, t = generate_indices(x_min, x_max, y_min, y_max, t_min, t_max, input.size[1], input.size[0], input.n_samples)
 
     # Store colocated data
     logger.info("Storing colocated data...")
-    patches = {"nx": patches_config.size[1], "x_min": x, "x_max": [x_i + patches_config.size[1] for x_i in x],
-               "ny": patches_config.size[0], "y_min": y, "y_max": [y_i + patches_config.size[0] for y_i in y],
-               "nt": patches_config.n_samples, "t": t, "t_min": t_min, "t_max": t_max}
+    patches = {"nx": input.size[1], "x_min": x, "x_max": [x_i + input.size[1] for x_i in x],
+               "ny": input.size[0], "y_min": y, "y_max": [y_i + input.size[0] for y_i in y],
+               "nt": input.n_samples, "t": t, "t_min": t_min, "t_max": t_max}
 
     # Save colocated data to a file
-    # TODO: Fix
-    if save and getattr(getattr(config.output, "patches", None), "path", None):
-        logger.info(f"Saving colocated data to file {config.output.patches.path}.")
-        with open(config.output.patches.path, 'wb') as file:
+    if getattr(output, "path", None):
+        logger.info(f"Saving colocated data to file {output.path}.")
+        with open(output.path, 'wb') as file:
             # noinspection PyTypeChecker
             pickle.dump(patches, file)
 
@@ -136,11 +130,11 @@ def main(config: DictConfig) -> None:
         None.
     """
 
-    # If statistics is part of the preparation steps:
-    if hasattr(config.data.preparation, "colocate"):
-        # Assign patches for input and output variables
-        logger.info(f"Colocating data...")
-        _ = colocate(config.data.preparation.colocate)
+    # If colocation is part of the preparation steps:
+    if hasattr(config.preparation, "colocate"):
+        for dataset, config_colocate in config.preparation.colocate.items():
+            logger.info(f"Colocation of the {dataset} dataset...")
+            _ = instantiate(config_colocate)
 
     return
 
