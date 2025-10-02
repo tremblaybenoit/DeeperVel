@@ -1,0 +1,142 @@
+# Data loader configuration
+_target_: track.model.data_loader.Dataloader
+_recursive_: False
+batch_size: 32  # Batch size for training
+# TODO: Due to Windows limitations, num_workers must be set to 0. Change this to a higher value for Linux/MacOS for better performance.
+num_workers: 0  # Number of workers for data loading
+# TODO: Set persistent_workers to true if num_workers > 0 for better performance.
+persistent_workers: false  # Keep workers alive between epochs
+
+# Split the data into training, validation, and test sets
+stage:
+  # Training set
+  train:
+    # Dataset class
+    _target_: DeeperVel.model.data_loader.LazyDataset
+    _recursive_: false
+    augment: true
+    # Variables to use as input
+    input:
+      - variables: # MHD variables as input
+          Bx: ${data.dataset.yz.variables.Bx}
+          By: ${data.dataset.yz.variables.By}
+          Bz: ${data.dataset.yz.variables.Bz}
+          vz: ${data.dataset.yz.variables.vz}
+        # Heights
+        slices: [ 384 ]
+        # Time steps
+        dt: [ 0, 1 ]
+      - variables: # I500 variable as input
+          I500: ${data.dataset.I500.variables.I500}
+        # Heights
+        slices: [ 0 ]
+        # Time steps
+        dt: [ 0, 1 ]
+    # Variables to use as targets
+    target:
+      - variables: # MHD variables to predict
+          vx: ${data.dataset.yz.variables.vx}
+          vy: ${data.dataset.yz.variables.vy}
+        # Heights
+        slices: [ 384 ]
+        # Time steps
+        dt: [ 0 ]
+    # Patches to use for training (slices from colocate preparation step)
+    patches:
+      _target_: track.data.colocate.read_patches
+      path: ${data.preparation.colocate.output.patches.path}
+      split: 'train'
+  # Validation set
+  valid:
+    # Dataset class
+    _target_: ${loader.stage.train._target_}
+    _recursive_: false
+    # Variables to use as input
+    input: ${loader.stage.train.input}
+    # Variables to use as targets
+    target: ${loader.stage.train.target}
+    # Patches to use for validation
+    patches:
+      _target_: track.data.colocate.read_patches
+      path: ${loader.train.patches.path}
+      split: 'valid'
+  # Test set
+  test:
+    # Dataset class
+    _target_: ${loader.stage.train._target_}
+    _recursive_: false
+    # Variables to use as input
+    input: ${loader.stage.train.input}
+    # Variables to use as targets
+    target: ${loader.stage.train.target}
+    # Patches to use for validation
+    patches:
+      t_min: 300
+      t_max: 360
+    # Results
+    results:
+      # Plasma velocities
+      vx:
+        # Path
+        path: ${paths.run_dir}/test_vx.npy
+        # Save function
+        save:
+          _target_: numpy.save
+          _partial_: true
+          _args_:
+            - ${.path}
+        # Load function
+        load:
+          _target_: utilities.io.load_npy
+          path: ${.path}
+      vy:
+        # Path
+        path: ${paths.run_dir}/test_vy.npy
+        # Save function
+        save:
+          _target_: numpy.save
+          _partial_: true
+          _args_:
+            - ${.path}
+        # Load function
+        load:
+          _target_: utilities.io.load_npy
+          path: ${.path}
+  # Predict set
+  predict:
+    # Dataset class
+    _target_: ${loader.stage.train._target_}
+    _recursive_: false
+    # Variables to use as input
+    input: ${loader.stage.train.input}
+    # Variables to use as targets
+    target: ${loader.stage.train.target}
+    # Results
+    results:
+      # Plasma velocities
+      vx:
+        # Path
+        path: ${paths.run_dir}/predict_vx.npy
+        # Save function
+        save:
+          _target_: numpy.save
+          _partial_: true
+          _args_:
+            - ${.path}
+        # Load function
+        load:
+          _target_: utilities.io.load_npy
+          path: ${.path}
+      vy:
+        # Path
+        path: ${paths.run_dir}/predict_vy.npy
+        # Save function
+        save:
+          _target_: numpy.save
+          _partial_: true
+          _args_:
+            - ${.path}
+        # Load function
+        load:
+          _target_: utilities.io.load_npy
+          path: ${.path}

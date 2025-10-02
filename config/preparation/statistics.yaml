@@ -1,0 +1,39 @@
+# Statistics of the dataset
+statistics:
+  # Continuum intensity at 500 nm
+  I500:
+    # Function
+    _target_: inverse.data.statistics.compute_statistics
+    _recursive_: false  # Do not instantiate nested objects
+    # What the method needs as input
+    input: ${data.MURaMQS.I500}
+    # What the method produces as output (pickle file)
+    output:
+      path: ${data.MURaMQS.I500.statistics.path}
+      type: "file"
+  # Geometrical slices dataset
+  yz:
+    # Function
+    _target_: inverse.data.statistics.compute_statistics
+    _recursive_: false  # Do not instantiate nested objects
+    # What the method needs as input
+    input: ${data.MURaMQS.yz}
+    # What the method produces as output (pickle file)
+    output:
+      path: ${data.MURaMQS.yz.statistics.path}
+      type: "file"
+    # Invariance
+    transverse_invariance: true
+  # Optical depth slices dataset
+  tau:
+    # Function
+    _target_: inverse.data.statistics.compute_statistics
+    _recursive_: false  # Do not instantiate nested objects
+    # What the method needs as input
+    input: ${data.MURaMQS.tau}
+    # What the method produces as output (pickle file)
+    output:
+      path: ${data.MURaMQS.tau.statistics.path}
+      type: "file"
+    # Invariance
+    transverse_invariance: true

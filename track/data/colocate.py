@@ -11,7 +11,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Generate random indices to extract random patches
+def read_patches(path: str, split):
+    """ Read patches from a pickle file.
+
+        Parameters
+        ----------
+        path: str. Path to the pickle file.
+        split: str. Data split (e.g., 'train', 'val', 'test').
+        Returns
+        -------
+        dict. Dictionary containing patches.
+    """
+    # Read patches from a pickle file
+    with open(path, 'rb') as file:
+        patches = pickle.load(file)
+    return patches[split]
+
+
 def generate_indices(x_min: int, x_max: int, y_min: int, y_max: int, t_min: int, t_max: int, dx: int, dy: int,
                      size: int, dt=0) -> tuple[list, list, list]:
     """ Generate random indices for x, y, and t coordinates.
@@ -101,11 +117,28 @@ def colocate(input: DictConfig, output: DictConfig = None) -> dict:
     logger.info("Generating spatiotemporal indices...")
     x, y, t = generate_indices(x_min, x_max, y_min, y_max, t_min, t_max, input.size[1], input.size[0], input.n_samples)
 
-    # Store colocated data
+    # Calculate split sizes
+    split_indices = {}
+    start = 0
+    for split_name, split_size in input.split.items():
+        end = start + split_size
+        split_indices[split_name] = range(start, end)
+        start = end
     logger.info("Storing colocated data...")
-    patches = {"nx": input.size[1], "x_min": x, "x_max": [x_i + input.size[1] for x_i in x],
-               "ny": input.size[0], "y_min": y, "y_max": [y_i + input.size[0] for y_i in y],
-               "nt": input.n_samples, "t": t, "t_min": t_min, "t_max": t_max}
+    patches = {}
+    for split, idxs in split_indices.items():
+        patches[split] = {
+            "nx": input.size[1],
+            "x_min": [x[i] for i in idxs],
+            "x_max": [x[i] + input.size[1] for i in idxs],
+            "ny": input.size[0],
+            "y_min": [y[i] for i in idxs],
+            "y_max": [y[i] + input.size[0] for i in idxs],
+            "nt": len(list(idxs)),
+            "t": [t[i] for i in idxs],
+            "t_min": t_min,
+            "t_max": t_max
+        }
 
     # Save colocated data to a file
     if getattr(output, "path", None):

@@ -1,0 +1,5 @@
+defaults:
+  - MURaMQS
+
+# Default precision for data loading and processing
+dtype: 'float32'

@@ -71,6 +71,34 @@ def read_statistics_var(path: str, var: str, tensor: bool = False, dtype: str = 
     return stats
 
 
+def read_statistics_slice_var(path: str, slice: Union[int, float], var: str, tensor: bool = False, dtype: str = 'float32') -> dict:
+    """ Read statistics of a specific variable from a file.
+
+        Parameters
+        ----------
+        path: str. Path to the file containing statistics.
+        slice: Union[int, float]. Slice from which to read statistics.
+        var: str. Variable to read statistics for.
+        tensor: bool. If True, returns statistics as torch tensors, otherwise as numpy arrays.
+        dtype: str. Data type of the torch tensors (if tensor=True).
+
+        Returns
+        -------
+        Dictionary containing statistics of the specified variable.
+    """
+
+    # Load statistics from file
+    stats = read_statistics(path, dtype=dtype)[slice][var]
+
+    # Convert statistics to torch tensors if required
+    if tensor:
+        stats = {key: torch.tensor(value, dtype=getattr(torch, dtype)) if isinstance(value, np.ndarray) else value
+                 for key, value in stats.items()}
+
+    # Return statistics for the specified variable
+    return stats
+
+
 def combine_statistics(stats: list[dict[str, Union[np.ndarray, int]]]) -> dict[str, np.ndarray]:
     """ Combine statistics of multiple datasets based on the mathematical definition of mean, var, stdev, etc.
         The datasets make come from different sources, e.g. different instruments, different heights, etc.
@@ -174,64 +202,101 @@ def compute_statistics(input: DictConfig, output: DictConfig = None) -> dict:
         None.
     """
 
-    # TODO: Adapt function based on new data configuration
+    def process_variable(data: np.ndarray, variable: str, stats_dict: dict):
+        """ Compute statistics of a variable and combine with previous statistics if any.
 
-    # Reader class
-    io = instantiate(dataset.io, _partial_=False)
+        Parameters
+        ---------
+        data: np.ndarray. Data of the variable to compute statistics on.
+        variable: str. Name of the variable.
+        stats_dict: dict. Dictionary to store statistics.
 
-    # Compute statistics per level per variable
+        Returns
+        -------
+        None.
+        """
+        stat = statistics(data, axis=tuple(range(data.ndim - 1)))
+        if variable in stats_dict:
+            stats_dict[variable] = combine_statistics([stats_dict[variable], stat])
+        else:
+            stats_dict[variable] = stat
+
+    def apply_transverse_invariance(stats_dict: dict, variables: dict):
+        """ Apply transverse invariance to the statistics of the variables.
+
+        Parameters
+        ----------
+        stats_dict: dict. Dictionary containing statistics of the variables.
+        variables: dict. Dictionary containing variable configurations.
+
+        Returns
+        -------
+        None.
+        """
+        for vpair in [("vx", "vy"), ("Bx", "By")]:
+            if all(v in variables for v in vpair):
+                negatives = [
+                    {"mean": -stats_dict[v]["mean"],
+                     "stdev": stats_dict[v]["stdev"],
+                     "min": -stats_dict[v]["max"],
+                     "max": -stats_dict[v]["min"],
+                     "median": -stats_dict[v]["median"],
+                     "variance": stats_dict[v]["variance"],
+                     "n_samples": stats_dict[v]["n_samples"]}
+                    for v in vpair
+                ]
+                combined_stats = combine_statistics([stats_dict[vpair[0]], stats_dict[vpair[1]], *negatives])
+                stats_dict[vpair[0]] = stats_dict[vpair[1]] = combined_stats
+
+    # Initialize statistics dictionary
     stats = {}
-    variables = list(input.keys())
 
-    # Iterations
-    t = io.t
-    # Levels
-    slices = io.dataset['slices']
+    # Loop over variables
+    for variable, variable_config in input.variables.items():
+        logger.info(f"Computing statistics of {variable} dataset out of {len(list(input.variables.keys()))}...")
+        # Retrieve path to files
+        path = instantiate(variable_config.path)
+        # If path is a dict, it means we have different levels (e.g. heights)
+        if isinstance(path, dict):
+            # Loop over levels
+            for key, p in path.items():
+                logger.info(f"Computing statistics of {variable} at level {key}...")
+                # Initialize level in stats if not already present
+                if key not in stats:
+                    stats[key] = {}
+                # If path contents is a list, loop over files
+                filenames = p if isinstance(p, list) else [p]
+                # Loop over files
+                for filename in filenames:
+                    # Load data
+                    data = instantiate(variable_config['load'], path=filename)
+                    # Compute statistics and combine with previous statistics if any
+                    process_variable(data, variable, stats[key])
+                    # Free memory
+                    data = None
+                    gc.collect()
+        # If path is a list, loop over files
+        else:
+            # If path contents is a list, loop over files
+            filenames = path if isinstance(path, list) else [path]
+            # Loop over files
+            for filename in filenames:
+                # Load data
+                data = instantiate(variable_config['load'], path=filename)
+                # Compute statistics and combine with previous statistics if any
+                process_variable(data, variable, stats)
+                # Free memory
+                data = None
+                gc.collect()
 
-    # Loop sequentially for memory efficiency (over speed)
-    # Loop over levels
-    for s in slices:
-
-        # Initialize statistics for the current level
-        stats[s] = {}
-
-        # Loop over variables
-        for variable, variable_config in dataset.variables.items():
-
-            print(f"Computing statistics for {variable} at level {s}...")
-
-            # Read data for the current variable and level
-            data = io.read(t, s, variable)
-
-            # Apply transformations
-            if hasattr(variable_config, "transform"):
-                data = preprocess(data, variable_config, scaling=False, transform=True)
-
-            # Compute statistics
-            stats[s][variable] = statistics(data, axis=tuple(range(data.ndim - 1)))
-            # Clear memory
-            data = None
-            gc.collect()
-
-        # Check for flags - Invariance in the transverse direction
-        if config.transverse_invariance:
-            print("Applying transverse invariance...")
-
-            # Combine statistics for horizontal variables
-            for vpair in [("vx", "vy"), ("Bx", "By")]:
-                if all(v in dataset.variables for v in vpair):
-                    negatives = [
-                        {"mean": -stats[s][v]["mean"],
-                         "stdev": stats[s][v]["stdev"],
-                         "min": -stats[s][v]["max"],
-                         "max": -stats[s][v]["min"],
-                         "median": -stats[s][v]["median"],
-                         "variance": stats[s][v]["variance"],
-                         "n_samples": stats[s][v]["n_samples"]}
-                        for v in vpair
-                    ]
-                    combined_stats = combine_statistics([stats[s][vpair[0]], stats[s][vpair[1]], *negatives])
-                    stats[s][vpair[0]] = stats[s][vpair[1]] = combined_stats
+    # Apply transverse invariance after all variables are processed
+    if input.transverse_invariance:
+        if any(isinstance(v, dict) for v in stats.values()):
+            # If stats is organized by levels (dict of dicts)
+            for key in stats:
+                apply_transverse_invariance(stats[key], input.variables)
+        else:
+            apply_transverse_invariance(stats, input.variables)
 
     # Save statistics to file
     if output is not None:

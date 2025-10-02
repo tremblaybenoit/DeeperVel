@@ -1,134 +1,94 @@
 from typing import Union, List
 import os
-import xarray as xr
 import numpy as np
 from multiprocessing import Pool
 import itertools
-from track.utilities.logic import get_list
-from tqdm import tqdm
 import gc
 import time
 import tracemalloc
+import glob
 
 
-def read_xarray(filename, engine="scipy", combine="by_coords"):
-    """ Reads a file using xarray.
-
-    Parameters
-    ----------
-    filename: str. Path to file.
-    engine: str. Engine to use for reading the NetCDF file.
-    combine: str. Combine method.
-
-    Returns
-    -------
-    data: xarray.Dataset. File as an xarray dataset
-    """
-
-    return xr.open_mfdataset(filename, engine=engine, combine=combine)
-
-
-def read_netcdf(filename, engine="h5netcdf"):
-    """ Reads a NetCDF file using xarray.
+def glob_MURaM(file_pattern: str, slices: Union[int, float, list]) -> Union[list[str], dict[str, list[str]]]:
+    """ Generate a list of filenames based on a file pattern, slice, and iteration.
 
     Parameters
     ----------
-    filename: str. Path to netCDF file.
-    engine : str. Engine to use for reading the NetCDF file.
+    file_pattern: str. File pattern to use.
+    slices: int or float. Slice(s) to read.
 
     Returns
-    -------
-    data: xarray.Dataset. NetCDF file as an xarray.
-    """
-
-    return read_xarray(filename, engine=engine)
-
-
-def get_tau_filename(path: str, slice: Union[int, float], iter: int):
-    """ Get the filename for a tau slice.
-
-    Parameters
     ----------
-    path: str. Path to the dataset.
-    slice: float. Tau slice value.
-    iter: int. Iteration number.
-
-    Returns
-    -------
-    str: Formatted filename for the tau slice.
+    filenames: list of str. List of filenames matching the pattern.
     """
 
-    # Choose formatting based on the value
-    if slice < 1e-3:
-        slice_str = f"{slice:.6f}"
+    # Generate file pattern based on slice type
+    if isinstance(slice, int):
+        pattern = file_pattern.format(iter='*', slice=slice)
+    elif isinstance(slice, float) and slice < 1.e-3:
+        pattern = file_pattern.format(iter='*', slice=f"{slice:.6f}")
+    elif isinstance(slice, float):
+        pattern = file_pattern.format(iter='*', slice=f"{slice:05.3f}")
+    elif isinstance(slice, list):
+        path = {}
+        for s in slices:
+            path[s] = glob_MURaM(file_pattern, slices=s)
+        return path
     else:
-        slice_str = f"{slice:05.3f}"
-    return f"{path}{slice_str}.{iter:06d}"
+        raise ValueError("Slice must be an integer or a float.")
+
+    # Get list of filenames matching the pattern
+    return sorted([f for f in glob.glob(pattern) if os.path.isfile(f)])
 
 
-def read_MURaMQS_var(nx, ny, iter: int, slice: Union[int, float], var: dict, x_min: int = 0, x_max: int = None, y_min: int = 0,
-                     y_max: int = None):
+# TODO: Technically the first 3 arguments make "filename"
+#def load_MURaM(file_pattern: str, slice: Union[int, float], iter: int, index: int = 0, nx: int = 1536,
+#               ny: int = 1536, default_dtype: str = 'float32', dtype: str='float32') -> np.ndarray:
+def load_MURaM(path: str, index: int = 0, nx: int = 1536,
+               ny: int = 1536, default_dtype: str = 'float32', dtype: str = 'float32') -> np.ndarray:
     """ Read a slice from a MURaM data file.
 
     Parameters
     ----------
-    iter: int. Iteration to read.
+    path: str. Path to the MURaM data file.
+    file_pattern: str. File pattern to use.
     slice: int. Slice to read.
-    var: str. Variable to read.
-    x_min: int. Minimum x coordinate.
-    x_max: int. Maximum x coordinate.
-    y_min: int. Minimum y coordinate.
-    y_max: int. Maximum y coordinate.
+    iter: int. Iteration to read.
+    index: int. Index of the variable to read.
     nx: int. Length of x coordinate.
     ny: int. Length of y coordinate.
+    default_dtype: str. Default data type in the file.
+    dtype: str. Data type to return.
 
     Returns
     ----------
     data: np.ndarray. Data read from the file.
     """
 
-    # Meta data
-    meta = var
-
     # Get filename
-    filename = get_tau_filename(meta['file_pattern'], slice, iter) if 'tau' in meta['file_pattern'] \
-        else meta['file_pattern'].format(iter=iter, slice=slice)
+    #if isinstance(slice, int):
+    #    filename = file_pattern.format(iter=iter, slice=slice)
+    #elif isinstance(slice, float) and slice < 1.e-3:
+    #    filename = file_pattern.format(iter=iter, slice=f"{slice:.6f}")
+    #elif isinstance(slice, float):
+    #    filename = file_pattern.format(iter=iter, slice=f"{slice:05.3f}")
+    #else:
+    #    raise ValueError("Slice must be an integer or a float.")
 
     # Compute itemsize
-    itemsize = np.dtype(meta['dtype']).itemsize
-    # Compute dimensions
-    x_max, y_max = x_max or nx, y_max or ny
+    itemsize = np.dtype(default_dtype).itemsize
     # Compute offset to variable
-    offset = (4 + (meta['index'] * nx * ny)) * itemsize
+    offset = (4 + (index * nx * ny)) * itemsize
 
     # Memory map the file and read variable
-    # data_tmp = np.memmap(filename, dtype=meta['dtype'], mode='r', offset=offset, shape=(1, self.nx, self.ny),
-    #                      order='F')
-    with open(filename, 'rb') as f:
+    with open(path, 'rb') as f:
         f.seek(offset)
-        data_tmp = np.fromfile(f, dtype=meta['dtype'], count=nx * ny)
-        data_tmp = data_tmp.reshape((1, nx, ny), order='F')
-    # Extract a patch of data
-    return data_tmp[0, y_min:y_max, x_min:x_max] * meta['units']['scaling']
-
-
-class FitsDataset:
-    """ Fits dataset class. """
-    def __init__(self, path: Union[str, List[str]]):
-        """
-        Initialize the Fits dataset.
-
-        Parameters
-        ----------
-        path: str. Path to the dataset.
-
-        Returns
-        -------
-        None.
-        """
-
-        # Class inheritance
-        super().__init__()
+        data = np.fromfile(f, dtype=default_dtype, count=nx * ny)
+    # Adjust data type if necessary
+    if dtype != default_dtype:
+        data = data.astype(dtype)
+    # Reshape data
+    return data.reshape((1, nx, ny), order='F')
 
 
 class MURaMQSDataset:

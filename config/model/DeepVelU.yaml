@@ -3,7 +3,12 @@ _target_: track.model.model.DeepVelUModel
 _recursive_: false
 
 # Model architecture
-model:
+n_in_channels: 10
+n_out_channels: 2
+n_conv_layers: 20
+n_filters: 64
+kernel_size: 3
+stride: 1
 
 # Activation function
 activation:

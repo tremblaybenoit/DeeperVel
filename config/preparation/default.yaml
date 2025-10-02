@@ -1,2 +1,4 @@
 defaults:
+  - statistics
+  - colocate
   - _self_

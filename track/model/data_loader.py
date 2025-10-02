@@ -2,13 +2,12 @@ import gc
 import os
 import numpy as np
 import pickle
-import psutil
 from omegaconf import DictConfig, ListConfig
-import pytorch_lightning as lightning
+import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 from typing import List, Tuple, Union, Dict
 from track.utilities.instantiators import instantiate
-from track.data.process import preprocess, postprocess
+from track.data.process import preprocess
 import logging
 from track.data.transformations import geometric_augmentation
 from concurrent.futures import ProcessPoolExecutor
@@ -35,26 +34,22 @@ def load_all(ds):
     return result
 
 
-class BaseDataModule(lightning.LightningDataModule):
+class BaseDataloader(pl.LightningDataModule):
+    def __init__(self, batch_size: int = 32, num_workers: int = None,
+                 persistent_workers: bool = True, pin_memory: bool = True, shuffle: bool = True) -> None:
+        """ Base dataloader class.
 
-    def __init__(self, input: Union[DictConfig, ListConfig], output: Union[DictConfig, ListConfig],
-                 split: DictConfig = None, batch_size: int = 32, num_workers: int = None, pin_memory: bool = True,
-                 shuffle: bool = True) -> None:
-        """ Loads paired samples of input and output data.
+        Parameters
+        ----------
+        batch_size : int. Batch size for the dataloader.
+        num_workers : int. Number of workers for the dataloader.
+        persistent_workers : bool. If True, the data loader will keep workers alive between epochs.
+        pin_memory : bool. If True, the data loader will copy Tensors into CUDA pinned memory before returning them.
+        shuffle : bool. If True, the data loader will shuffle the data at every epoch.
 
-            Parameters
-            ----------
-            input: DictConfig. Input data.
-            output: DictConfig. Output data.
-            split: DictConfig, optional. Training/validation/testing split, by default None.
-            batch_size: int, optional. Batch size, by default 32
-            num_workers: int, optional. Number of workers, by default None.
-            pin_memory: bool, optional. Pin memory for faster data transfer, by default True.
-            shuffle: bool, optional. Shuffle training data, by default True.
-
-            Returns
-            -------
-            None.
+        Returns
+        -------
+        None.
         """
 
         #  Class inheritance
@@ -62,18 +57,14 @@ class BaseDataModule(lightning.LightningDataModule):
 
         # Number of cpus
         self.num_workers = num_workers if num_workers is not None else os.cpu_count() // 2
+        # Persistent workers for faster data loading
+        self.persistent_workers = persistent_workers
         # Neural network training batch size
         self.batch_size = batch_size
         # Pin memory for faster data transfer
         self.pin_memory = pin_memory
-        # Split
-        self.ds_split = split
-        # Shuffle training data
+        # Shuffle data at every epoch
         self.shuffle = shuffle
-
-        # Configuration
-        self.ds_input = input
-        self.ds_output = output
 
         # Datasets
         self.ds_train = None
@@ -90,11 +81,11 @@ class BaseDataModule(lightning.LightningDataModule):
 
             Returns
             -------
-            Training set (inputs and outputs).
+            Training set (inputs & outputs).
 
         """
         return DataLoader(self.ds_train, batch_size=self.batch_size, num_workers=self.num_workers,
-                          pin_memory=self.pin_memory, persistent_workers=True, shuffle=self.shuffle)
+                          pin_memory=self.pin_memory, persistent_workers=self.persistent_workers, shuffle=self.shuffle)
 
     def val_dataloader(self) -> DataLoader:
         """ Load validation set.
@@ -109,7 +100,7 @@ class BaseDataModule(lightning.LightningDataModule):
 
         """
         return DataLoader(self.ds_valid, batch_size=self.batch_size, num_workers=self.num_workers,
-                          pin_memory=self.pin_memory, persistent_workers=True)
+                          pin_memory=self.pin_memory, persistent_workers=self.persistent_workers)
 
     def test_dataloader(self) -> DataLoader:
         """ Load test set.
@@ -124,7 +115,7 @@ class BaseDataModule(lightning.LightningDataModule):
 
         """
         return DataLoader(self.ds_test, batch_size=self.batch_size, num_workers=self.num_workers,
-                          pin_memory=self.pin_memory, persistent_workers=True)
+                          pin_memory=self.pin_memory, persistent_workers=self.persistent_workers)
 
     def predict_dataloader(self) -> DataLoader:
         """ Load prediction set.
@@ -138,123 +129,315 @@ class BaseDataModule(lightning.LightningDataModule):
             Prediction set (inputs & outputs if available).
 
         """
-        return DataLoader(self.ds_pred, batch_size=1, num_workers=self.num_workers,
-                          pin_memory=self.pin_memory, persistent_workers=True)
+        return DataLoader(self.ds_pred, batch_size=self.batch_size, num_workers=self.num_workers,
+                          pin_memory=self.pin_memory, persistent_workers=self.persistent_workers)
 
 
-class LazyDataModule(BaseDataModule):
+class Dataloader(BaseDataloader):
+    def __init__(self, stage: DictConfig, batch_size: int = 32, num_workers: int = None,
+                 persistent_workers: bool = True, pin_memory: bool = True) -> None:
+        """ Dataloader for the CRTM dataset.
 
-    def __init__(self, input: DictConfig, output: DictConfig, split: DictConfig = None, augment: bool = False,
-                 scaling: bool = True, transform: bool = True,
-                 batch_size: int = 32, num_workers: int = None, pin_memory: bool = True, shuffle: bool = True) -> None:
-        """ Loads paired data samples of radiances and thermodynamic profiles.
+        Parameters
+        ----------
+        stage: DictConfig. Configuration object for the dataset at each stage (train, valid, test, pred).
+        batch_size : int. Batch size for the dataloader.
+        num_workers : int. Number of workers for the dataloader.
+        persistent_workers : bool. If True, the data loader will not shut down the worker processes after a dataset has been consumed.
+        pin_memory : bool. If True, the data loader will copy Tensors into CUDA pinned memory before returning them.
 
-            Parameters
-            ----------
-            input: DictConfig. Input data configuration.
-            output: DictConfig. Output data configuration.
-            split: DictConfig, optional. Training/validation/testing split, by default None.
-            batch_size: int, optional. Batch size, by default 32
-            num_workers: int, optional. Number of workers, by default None.
-            pin_memory: bool, optional. Pin memory for faster data transfer, by default True.
-            shuffle: bool, optional. Shuffle training data, by default True.
-            augment: bool, optional. Apply data augmentation, by default None.
-
-            Returns
-            -------
-            None.
-
+        Returns
+        -------
+        None.
         """
 
         #  Class inheritance
-        super().__init__(input=input, output=output, split=split, batch_size=batch_size,
-                         num_workers=num_workers, pin_memory=pin_memory, shuffle=shuffle)
+        super().__init__(batch_size=batch_size, num_workers=num_workers, persistent_workers=persistent_workers,
+                         pin_memory=pin_memory)
 
-        # Transformations and scaling
-        self.transform = transform
-        self.scaling = scaling
+        # Data sets
+        self.stage = stage
+
+    def setup(self, stage: str):
+        """ Set up the dataset for training, validation, testing, or prediction.
+
+            Parameters
+            ----------
+            stage : str. Stage of the model ('train', 'valid', 'test', 'predict').
+
+            Returns
+            -------
+            None.
+        """
+
+        # Load datasets
+        if stage == 'train':
+            # Training/validation data
+            self.ds_train, self.ds_valid = instantiate(self.stage.train), instantiate(self.stage.valid)
+        elif stage == 'test':
+            # Test/prediction data
+            self.ds_test = instantiate(self.stage.test)
+        elif stage == 'pred':
+            # Prediction data
+            self.ds_pred = instantiate(self.stage.predict)
+
+
+class BaseDataset(Dataset):
+    """Base dataset class."""
+
+    def __init__(self, x: dict) -> None:
+        """Initialize the dataset class.
+
+            Parameters
+            ----------
+            x : dict. Dictionary containing the data.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Store data
+        self.x = x
+
+    def __len__(self) -> int:
+        """ Get the length of the dataset.
+
+            Returns
+            -------
+            int. Length of the dataset.
+        """
+        # Return the length of the first input tensor
+        first_dict = next(iter(self.x.values()))
+        first_var = next(iter(first_dict.values()))
+        return len(first_var)
+
+    def __getitem__(self, idx: int) -> dict:
+        """ Get data
+
+            Returns
+            -------
+            Dataset object.
+        """
+
+        # Get the data at the specified index
+        return {k: {kk: vv[idx] if vv.shape[0] == self.__len__() else vv
+                    for kk, vv in v.items()} for k, v in self.x.items()}
+
+
+class LazyDataset(Dataset):
+    """ Dataset class for the CRTM dataset."""
+
+    def __init__(self, input: ListConfig, target: ListConfig = None, results: DictConfig = None, augment: bool=False,
+                 patches: dict=None) -> None:
+        """ Initialize the dataset.
+
+            Parameters
+            ----------
+            input: ListConfig. Configuration object for the input variables.
+            target: ListConfig. Configuration object for the target variables.
+            results: DictConfig. Configuration object for the results.
+            augment: bool, optional. Apply data augmentation, by default False.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Class inheritance
+        super().__init__()
+
+        # Store patches
+        self.patches = patches
+        # Store input and output configurations
+        self.input, self.target = input, target
+        # Store results configuration
+        self.results = results
+        # Data augmentation
         self.augment = augment
 
-    def setup(self, stage: str = None) -> None:
-        """ Splits datasets into training, validation, testing, and prediction sets.
+    def __len__(self) -> int:
+        """ Get the length of the dataset.
 
             Parameters
             ----------
-            stage: str. Current operation: "train" for training, "test" for testing,
-                        "predict" for inference.
+            None.
 
             Returns
             -------
-            None.
+            int: Length of the dataset.
+        """
+        return self.length
 
+    def __getitem__(self, item: int):
+        """ Get data and apply transformations.
+
+            Parameters
+            ----------
+            item: int. Index of item to read.
+
+            Returns
+            -------
+            Data: Float.
         """
 
-        # Load patches
-        if stage in ["train", "test"] and hasattr(self.ds_split, 'patches'):
-            # Read patches
-            if os.path.exists(self.ds_split.patches):
-                # Load from the file
-                with open(self.ds_split.patches, 'rb') as file:
-                    patches = pickle.load(file)
+        # If patches are provided, adjust the item index
+        # if self.patches:
+        input_data = np.stack([
+            instantiate(
+                ds.variables[variable].load,
+                slice=slice,
+                t=self.patches['t'][item]+dt
+            )[self.patches['y_min'][item]:self.patches['y_min'][item]+self.patches['dy'],
+              self.patches['x_min'][item]:self.patches['x_min'][item]+self.patches['dx']]
+            for ds in self.input
+            for slice in ds.slices
+            for variable in ds.variables
+            for dt in self.input.dt
+        ])
 
-        # Training & validation sets
-        if stage == "train":
-            # If split is provided, use it to create training and validation sets
-            patches_train = {
-                key: var[:self.ds_split.train] if isinstance(var, list) else var for key, var in patches.items()
-            }
-            patches_valid = {
-                key: var[self.ds_split.train:self.ds_split.train + self.ds_split.valid]
-                if isinstance(var, list) else var for key, var in patches.items()
-            }
-            logger.info(f"Loading training set samples")
-            self.ds_train = MultiDataset(self.ds_input, output=self.ds_output, augment=self.augment,
-                                        scaling=self.scaling, transform=self.transform, x_min=patches_train['x_min'],
-                                        nx=patches_train['nx'], y_min=patches_train['y_min'], ny=patches_train['ny'],
-                                        t=patches_train['t'])
-            logger.info(f"Loading validation set samples")
-            self.ds_valid = MultiDataset(self.ds_input, output=self.ds_output,  # augment=self.augment,
-                                        scaling=self.scaling, transform=self.transform, x_min=patches_valid['x_min'],
-                                        nx=patches_valid['nx'], y_min=patches_valid['y_min'], ny=patches_valid['ny'],
-                                        t=patches_valid['t'])
+        # Read data
+        output_data = [ds[item].astype('float32') for ds in self.output] if self.output is not None else None
 
-        elif stage == "test":
+        # Apply augmentation if specified
+        if self.augment:
+            combinations = [
+                (0, None),  # identity
+                (1, None),  # rot90
+                (2, None),  # rot180
+                (3, None),  # rot270
+                (0, 1),  # flip x
+                (0, 0),  # flip y
+                (1, 1),  # rot90 + flip x
+                (1, 0),  # rot90 + flip y
+            ]
+            n_rot90, n_flip = combinations[np.random.randint(0, 8)]
+            axes_rot90 = (0, 1)
+            input_data = [geometric_augmentation(data, list(ds.variables.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                          for ds, data in zip(self.input, input_data)]
+            if output_data is not None:
+                output_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                               for ds, data in zip(self.output, output_data)]
 
-            # Test set
-            if hasattr(self.ds_split, 'test') and self.ds_split.test is not None:
-                # Use the test set from the split
-                patches_test = {
-                    key: var[self.ds_split.train+self.ds_split.valid:self.ds_split.train+self.ds_split.valid+self.ds_split.test]
-                    if isinstance(var, list) else var for key, var in patches.items()
-                }
-                self.ds_test = MultiDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
-                                           transform=self.transform, x_min=patches_test['x_min'],
-                                           nx=patches_test['nx'], y_min=patches_test['y_min'], ny=patches_test['ny'],
-                                           t=patches_test['t'])
+            # Combine input and output data into a single array
+            input_combined = np.concatenate(
+                [data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.inputs, input_data)], axis=-1)
+            if output_data is not None:
+                output_combined = np.concatenate(
+                    [data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.outputs, output_data)], axis=-1)
+                return input_combined.transpose(2, 0, 1).astype('float32'), output_combined.transpose(2, 0,
+                                                                                                      1).astype(
+                    'float32')
             else:
-                # Use all available data
-                self.ds_test = MultiDataset(self.ds_input, output=self.ds_output, scaling=self.scaling,
-                                           transform=self.transform)
+                return input_combined.transpose(2, 0, 1).astype('float32')
 
-        # Prediction dataset
-        elif stage == "predict":
-            self.ds_pred = MultiDataset(self.ds_input, scaling=self.scaling, transform=self.transform)
 
-    def predict(self, input: DictConfig, patches: Dict = None) -> None:
-        """ Load prediction dataset.
+
+class MultiDataset(Dataset):
+    def __init__(self, input: ListConfig, output: ListConfig = None, scaling: bool = False,
+                 transform: bool = False, augment: bool = False, t: Union[list, int] = None,
+                 x_min: Union[list, int] = None, nx: Union[list, int] = None, y_min: Union[list, int] = None,
+                 ny: Union[list, int] = None) -> None:
+        """ Loads and transforms paired data samples into memory.
 
             Parameters
             ----------
-            input: DictConfig. Input data configuration.
-            patches: Dict, optional. Patches to read, by default None.
+            input: ListConfig. List of input data configurations.
+            output: ListConfig, optional. List of output data configurations, by default None.
+            scaling: bool, optional. Apply scaling, by default False.
+            transform: bool, optional. Apply transformations, by default False.
+            augment: bool, optional. Apply data augmentation, by default False.
+            t: list or int, optional. List of timesteps to read, by default None.
+            x_min: list or int, optional. Minimum x-coordinate, by default None.
+            nx: list or int, optional. Width of the patch, by default None.
+            y_min: list or int, optional. Minimum y-coordinate, by default None.
+            ny: list or int, optional. Height of the patch, by default None.
 
             Returns
             -------
             None.
         """
 
-        # Prediction dataset
-        self.ds_pred = LazyDataset(input, scaling=self.scaling, transform=self.transform)
+        # Class inheritance
+        super().__init__()
+
+        # Read input variables, slices, and timesteps
+        self.inputs = [BaseDataset(cfg, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny) for cfg in input]
+        self.outputs = [BaseDataset(cfg, t=t, x_min=x_min, nx=nx, y_min=y_min, ny=ny) for cfg in output] if output is not None else None
+        # Transformations and scaling
+        self.scaling = scaling
+        self.transform = transform
+        self.augment = augment
+
+        # Read all data into memory
+        # self.input_data = [[ds[i] for i in range(len(ds))] for ds in self.inputs]
+        # self.output_data = [[ds[i] for i in range(len(ds))] for ds in self.outputs] if self.outputs is not None else None
+        self.input_data = [load_all(ds) for ds in tqdm(self.inputs)]
+        self.output_data = [load_all(ds) for ds in tqdm(self.outputs)] if self.outputs is not None else None
+        self.length = len(self.input_data[0])
+
+    def __len__(self) -> int:
+        """ Get the length of the dataset.
+
+            Parameters
+            ----------
+            None.
+
+            Returns
+            -------
+            int: Length of the dataset.
+        """
+        return self.length
+
+    def __getitem__(self, item: int) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """ Get data and apply transformations.
+
+            Parameters
+            ----------
+            item: int. Index of item to read.
+
+            Returns
+            -------
+            Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]: Input data, and optionally output data.
+        """
+
+        # Extract data from memory
+        input_data = [data[item].astype('float32') for data in self.input_data]
+        output_data = [data[item].astype('float32') for data in self.output_data] if self.output_data is not None else None
+
+        # Apply augmentation if specified
+        if self.augment:
+            combinations = [
+                (0, None),  # identity
+                (1, None),  # rot90
+                (2, None),  # rot180
+                (3, None),  # rot270
+                (0, 1),  # flip x
+                (0, 0),  # flip y
+                (1, 1),  # rot90 + flip x
+                (1, 0),  # rot90 + flip y
+            ]
+            n_rot90, n_flip = combinations[np.random.randint(0, 8)]
+            axes_rot90 = (0, 1)
+            input_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                          for ds, data in zip(self.inputs, input_data)]
+            if output_data is not None:
+                output_data = [geometric_augmentation(data, list(ds.vars.keys()), n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+                               for ds, data in zip(self.outputs, output_data)]
+
+        # Apply scaling/transform if specified
+        if self.scaling or self.transform:
+            input_data = [ds.preprocess(data, scaling=self.scaling, transform=self.transform) for ds, data in zip(self.inputs, input_data)]
+            if output_data is not None:
+                output_data = [ds.preprocess(data, scaling=self.scaling, transform=self.transform) for ds, data in zip(self.outputs, output_data)]
+
+        # Combine input and output data into a single array
+        input_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.inputs, input_data)], axis=-1)
+        if output_data is not None:
+            output_combined = np.concatenate([data.reshape(ds.ny, ds.nx, -1) for ds, data in zip(self.outputs, output_data)], axis=-1)
+            return input_combined.transpose(2, 0, 1).astype('float32'), output_combined.transpose(2, 0, 1).astype('float32')
+        else:
+            return input_combined.transpose(2, 0, 1).astype('float32')
 
 
 class BaseDataset(Dataset):
