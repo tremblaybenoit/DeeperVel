@@ -1,4 +1,5 @@
 from typing import Union, List
+from omegaconf import DictConfig
 import os
 import numpy as np
 from multiprocessing import Pool
@@ -9,7 +10,7 @@ import tracemalloc
 import glob
 
 
-def glob_MURaM(file_pattern: str, slices: Union[int, float, list]) -> Union[list[str], dict[str, list[str]]]:
+def glob_MURaM(file_pattern: str, slices: Union[int, float, list] = None) -> Union[list[str], dict[str, list[str]]]:
     """ Generate a list of filenames based on a file pattern, slice, and iteration.
 
     Parameters
@@ -23,13 +24,15 @@ def glob_MURaM(file_pattern: str, slices: Union[int, float, list]) -> Union[list
     """
 
     # Generate file pattern based on slice type
-    if isinstance(slice, int):
-        pattern = file_pattern.format(iter='*', slice=slice)
-    elif isinstance(slice, float) and slice < 1.e-3:
-        pattern = file_pattern.format(iter='*', slice=f"{slice:.6f}")
-    elif isinstance(slice, float):
-        pattern = file_pattern.format(iter='*', slice=f"{slice:05.3f}")
-    elif isinstance(slice, list):
+    if slices is None:
+        pattern = file_pattern.format(iter='*')
+    elif isinstance(slices, int):
+        pattern = file_pattern.format(iter='*', slice=f"{slices:04d}")
+    elif isinstance(slices, float) and slices < 1.e-3:
+        pattern = file_pattern.format(iter='*', slice=f"{slices:.6f}")
+    elif isinstance(slices, float) and slices >= 1.e-3:
+        pattern = file_pattern.format(iter='*', slice=f"{slices:05.3f}")
+    elif isinstance(slices, list):
         path = {}
         for s in slices:
             path[s] = glob_MURaM(file_pattern, slices=s)
@@ -41,54 +44,35 @@ def glob_MURaM(file_pattern: str, slices: Union[int, float, list]) -> Union[list
     return sorted([f for f in glob.glob(pattern) if os.path.isfile(f)])
 
 
-# TODO: Technically the first 3 arguments make "filename"
-#def load_MURaM(file_pattern: str, slice: Union[int, float], iter: int, index: int = 0, nx: int = 1536,
-#               ny: int = 1536, default_dtype: str = 'float32', dtype: str='float32') -> np.ndarray:
-def load_MURaM(path: str, index: int = 0, nx: int = 1536,
-               ny: int = 1536, default_dtype: str = 'float32', dtype: str = 'float32') -> np.ndarray:
+def load_MURaM(path: str, properties: DictConfig, index: int = 0, dtype: str='float32') -> np.ndarray:
     """ Read a slice from a MURaM data file.
 
     Parameters
     ----------
     path: str. Path to the MURaM data file.
-    file_pattern: str. File pattern to use.
-    slice: int. Slice to read.
-    iter: int. Iteration to read.
+    properties: DictConfig. Properties of the dataset.
     index: int. Index of the variable to read.
-    nx: int. Length of x coordinate.
-    ny: int. Length of y coordinate.
-    default_dtype: str. Default data type in the file.
-    dtype: str. Data type to return.
+    dtype: str. Data type to read.
 
     Returns
     ----------
     data: np.ndarray. Data read from the file.
     """
 
-    # Get filename
-    #if isinstance(slice, int):
-    #    filename = file_pattern.format(iter=iter, slice=slice)
-    #elif isinstance(slice, float) and slice < 1.e-3:
-    #    filename = file_pattern.format(iter=iter, slice=f"{slice:.6f}")
-    #elif isinstance(slice, float):
-    #    filename = file_pattern.format(iter=iter, slice=f"{slice:05.3f}")
-    #else:
-    #    raise ValueError("Slice must be an integer or a float.")
-
     # Compute itemsize
-    itemsize = np.dtype(default_dtype).itemsize
+    itemsize = np.dtype(properties.dtype).itemsize
     # Compute offset to variable
-    offset = (4 + (index * nx * ny)) * itemsize
+    offset = (4 + (index * properties.nx * properties.ny)) * itemsize
 
     # Memory map the file and read variable
     with open(path, 'rb') as f:
         f.seek(offset)
-        data = np.fromfile(f, dtype=default_dtype, count=nx * ny)
+        data = np.fromfile(f, dtype=properties.dtype, count=properties.nx * properties.ny)
     # Adjust data type if necessary
-    if dtype != default_dtype:
+    if dtype != properties.dtype:
         data = data.astype(dtype)
     # Reshape data
-    return data.reshape((1, nx, ny), order='F')
+    return data.reshape((1, properties.nx, properties.ny), order='F')
 
 
 class MURaMQSDataset:

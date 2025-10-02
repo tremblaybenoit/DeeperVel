@@ -6,6 +6,7 @@ import hydra
 from omegaconf import DictConfig
 from track.utilities.instantiators import instantiate
 from track.utilities.logic import get_config_path
+from tqdm import tqdm
 import gc
 import logging
 
@@ -251,6 +252,9 @@ def compute_statistics(input: DictConfig, output: DictConfig = None) -> dict:
     # Initialize statistics dictionary
     stats = {}
 
+    # Retrieve path to files
+    # path = instantiate(input.path)
+
     # Loop over variables
     for variable, variable_config in input.variables.items():
         logger.info(f"Computing statistics of {variable} dataset out of {len(list(input.variables.keys()))}...")
@@ -267,7 +271,7 @@ def compute_statistics(input: DictConfig, output: DictConfig = None) -> dict:
                 # If path contents is a list, loop over files
                 filenames = p if isinstance(p, list) else [p]
                 # Loop over files
-                for filename in filenames:
+                for filename in tqdm(filenames, desc=f"Processing files for {variable} at level {key}"):
                     # Load data
                     data = instantiate(variable_config['load'], path=filename)
                     # Compute statistics and combine with previous statistics if any

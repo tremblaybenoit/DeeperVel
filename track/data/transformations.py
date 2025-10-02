@@ -353,9 +353,9 @@ def augment_vector(data_x: Union[np.ndarray, torch.Tensor], data_y: Union[np.nda
     else:
         raise ValueError(f"Unsupported number of rotations: {n_rot90}. Must be in [0, 3].")
 
-def geometric_augmentation(data: Union[np.ndarray, torch.Tensor, tuple[np.ndarray, np.ndarray], tuple[torch.Tensor, torch.Tensor]],
-                           vars: list[str], n_rot90: int = 0, axes_rot90: Union[int, tuple[int, int]] = 1, n_flip: int = None) \
-        -> Union[np.ndarray, torch.Tensor, tuple[np.ndarray, np.ndarray], tuple[torch.Tensor, torch.Tensor]]:
+def geometric_augmentation(data: list[np.ndarray], vars: list[str], n_rot90: int = 0,
+                           axes_rot90: Union[int, tuple[int, int]] = 1, n_flip: int = None) \
+        -> list[np.ndarray]:
     """ Apply geometric augmentation to the dataset.
 
         Parameters
@@ -375,11 +375,11 @@ def geometric_augmentation(data: Union[np.ndarray, torch.Tensor, tuple[np.ndarra
     for vpair in [("vx", "vy"), ("Bx", "By")]:
         if all(v in vars for v in vpair):
             idx_x, idx_y = vars.index(vpair[0]), vars.index(vpair[1])
-            data[..., idx_x], data[..., idx_y] = augment_vector(data[..., idx_x], data[..., idx_y],
-                                                                n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+            data[idx_x], data[idx_y] = augment_vector(data[idx_x], data[idx_y],
+                                                      n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
     # Scalar augmentation
     for scalar in ["I500", "vz", "Bz"]:
         if scalar in vars:
             idx = vars.index(scalar)
-            data[..., idx] = augment_scalar(data[..., idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+            data[idx] = augment_scalar(data[idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
     return data

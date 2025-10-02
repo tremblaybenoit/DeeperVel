@@ -8,9 +8,6 @@ dataset:
     path:
       _target_: track.data.io.glob_MURaM
       file_pattern: ${.dir}/I_out.{{iter:06d}}
-      slices: ${.slices}
-    # Available slices
-    slices: [0]
     # Properties
     properties:
       dtype: 'float32'
@@ -34,7 +31,9 @@ dataset:
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 0
+          dtype: ${data.dtype}
         # Normalization function and parameters
         normalization:
           # Function
@@ -68,87 +67,123 @@ dataset:
     variables:
       # Magnetic field components
       Bx:
+        # Path to files
+        path: ${..path}
+        # Properties
+        properties: ${..properties}
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 7
+          dtype: ${data.dtype}
         normalization:
           # Function
           _target_: inverse.data.transformations.mean_stdev
           _partial_: true
           stats:
-            _target_: inverse.data.statistics.read_statistics_var
+            _target_: inverse.data.statistics.read_statistics_slice_var
             path: ${..statistics.path}
             var: 'Bx'
           dtype: ${data.dtype}
       By:
+        # Path to files
+        path: ${..path}
+        # Properties
+        properties: ${..properties}
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 6
+          dtype: ${data.dtype}
         normalization:
           # Function
           _target_: inverse.data.transformations.mean_stdev
           _partial_: true
           stats:
-            _target_: inverse.data.statistics.read_statistics_var
+            _target_: inverse.data.statistics.read_statistics_slice_var
             path: ${..statistics.path}
             var: 'By'
           dtype: ${data.dtype}
       Bz:
+        # Path to files
+        path: ${..path}
+        # Properties
+        properties: ${..properties}
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 5
+          dtype: ${data.dtype}
         normalization:
           # Function
           _target_: inverse.data.transformations.mean_stdev
           _partial_: true
           stats:
-            _target_: inverse.data.statistics.read_statistics_var
+            _target_: inverse.data.statistics.read_statistics_slice_var
             path: ${..statistics.path}
             var: 'Bz'
           dtype: ${data.dtype}
       # Velocity components
       vx:
+        # Path to files
+        path: ${..path}
+        # Properties
+        properties: ${..properties}
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 3
+          dtype: ${data.dtype}
         normalization:
           # Function
           _target_: inverse.data.transformations.mean_stdev
           _partial_: true
           stats:
-            _target_: inverse.data.statistics.read_statistics_var
+            _target_: inverse.data.statistics.read_statistics_slice_var
             path: ${..statistics.path}
             var: 'vx'
           dtype: ${data.dtype}
       vy:
+        # Path to files
+        path: ${..path}
+        # Properties
+        properties: ${..properties}
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 2
+          dtype: ${data.dtype}
         normalization:
           # Function
           _target_: inverse.data.transformations.mean_stdev
           _partial_: true
           stats:
-            _target_: inverse.data.statistics.read_statistics_var
+            _target_: inverse.data.statistics.read_statistics_slice_var
             path: ${..statistics.path}
             var: 'vy'
           dtype: ${data.dtype}
       vz:
+        # Path to files
+        path: ${..path}
+        # Properties
+        properties: ${..properties}
         # Loading function
         load:
           _target_: data.io.load_MURaM
+          properties: ${..properties}
           index: 1
+          dtype: ${data.dtype}
         normalization:
           # Function
           _target_: inverse.data.transformations.mean_stdev
           _partial_: true
           stats:
-            _target_: inverse.data.statistics.read_statistics_var
+            _target_: inverse.data.statistics.read_statistics_slice_var
             path: ${..statistics.path}
             var: 'vz'
           dtype: ${data.dtype}

@@ -12,7 +12,7 @@ stage:
   # Training set
   train:
     # Dataset class
-    _target_: DeeperVel.model.data_loader.LazyDataset
+    _target_: DeeperVel.model.data_loader.LazyDatasets
     _recursive_: false
     augment: true
     # Variables to use as input
@@ -28,8 +28,6 @@ stage:
         dt: [ 0, 1 ]
       - variables: # I500 variable as input
           I500: ${data.dataset.I500.variables.I500}
-        # Heights
-        slices: [ 0 ]
         # Time steps
         dt: [ 0, 1 ]
     # Variables to use as targets
@@ -71,8 +69,20 @@ stage:
     target: ${loader.stage.train.target}
     # Patches to use for validation
     patches:
-      t_min: 300
-      t_max: 360
+      t:
+        _target_: numpy.arange(300, 360)
+      x_min:
+        _target_: numpy.repeat
+        _args_:
+          - 0
+          - 60
+      y_min:
+        _target_: numpy.repeat
+        _args_:
+          - 0
+          - 60
+      nx: ${loader.stage.train.output[0].variables[0].slices[0]}  # Full x size
+      ny: ${loader.stage.train.variables[0].slices[0]}  # Full y size
     # Results
     results:
       # Plasma velocities

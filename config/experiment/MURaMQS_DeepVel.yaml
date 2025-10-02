@@ -4,7 +4,7 @@
 # Overriding default structure
 defaults:
   - override /data: MURaMQS
-  - override /loader: default
+  - override /loader: LazyDatasets
   - override /paths: default
   - override /hydra: default
   - override /model: DeepVel

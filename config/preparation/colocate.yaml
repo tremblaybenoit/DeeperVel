@@ -16,9 +16,9 @@ colocate:
       # Size of patches
       size: [48, 48]
       # Dimensions of the dataset
-      nx: ${data.MURaMQS.I500.properties.nx}
-      ny: ${data.MURaMQS.I500.properties.ny}
-      nt: ${data.MURaMQS.I500.properties.nt}
+      nx: ${data.dataset.I500.properties.nx}
+      ny: ${data.dataset.I500.properties.ny}
+      nt: ${data.dataset.I500.properties.nt}
       # Range of timesteps to choose from
       t_range: [0, 300]
       # Timesteps between samples (0 = same timestep, 1 = next timestep, etc.)
