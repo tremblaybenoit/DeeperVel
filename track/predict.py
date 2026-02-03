@@ -5,7 +5,11 @@ from track.utilities.instantiators import instantiate
 from track.train import Tracker
 from track.utilities.logic import get_config_path
 import torch
-torch.set_float32_matmul_precision('high')
+# Force full FP32 matmul on CUDA (disable TF32) for more reproducible numerics
+torch.set_float32_matmul_precision('highest')
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)

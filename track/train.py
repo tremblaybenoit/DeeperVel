@@ -8,7 +8,11 @@ import pytorch_lightning as lightning
 from track.utilities.logger import TrainerLogger
 from track.utilities.instantiators import instantiate, instantiate_list
 from track.utilities.logic import get_config_path
-torch.set_float32_matmul_precision('high')
+# Force full FP32 matmul on CUDA (disable TF32) for more reproducible numerics
+torch.set_float32_matmul_precision('highest')
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -124,9 +128,19 @@ class Tracker:
 
         # Train the model ⚡
         resume_ckpt = self.config.get("resume_from_checkpoint", None)
+        init_ckpt = self.config.get("init_from_checkpoint", None)
+        # Check if resuming from checkpoint or initializing from checkpoint
         if resume_ckpt and os.path.exists(resume_ckpt):
             logger.info(f"Resuming training from checkpoint: {resume_ckpt}")
             self.trainer.fit(self.model, self.data_loader, ckpt_path=resume_ckpt)
+        elif init_ckpt and os.path.exists(init_ckpt):
+            logger.info(f"Initializing model from checkpoint: {init_ckpt}")
+            checkpoint = torch.load(init_ckpt, map_location='cpu', weights_only=False)
+            state_dict = checkpoint.get('state_dict', checkpoint)
+            self.model.load_state_dict(state_dict, strict=True)
+            logger.info("Training model...")
+            self.trainer.fit(self.model, self.data_loader)
+        # Else, start training from scratch
         else:
             logger.info("Training model...")
             self.trainer.fit(self.model, self.data_loader)
@@ -161,7 +175,7 @@ class Tracker:
         if self.model is None:
             logger.info("Loading model...")
             self.model = instantiate(self.config.model)
-            checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=True)
+            checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=False)
             self.model.load_state_dict(checkpoint['state_dict'], strict=False)
             if hasattr(self.config.data, 'dtype'):
                 self.model = self.model.to(None, dtype=getattr(torch, self.config.data.dtype))
@@ -177,9 +191,9 @@ class Tracker:
         if hasattr(self.config.loader.stage.test, 'results'):
             # Loop over all results in the config and save them
             for result_name, result_config in self.config.loader.stage.test.results.items():
-                if result_name in self.model.test_results and hasattr(result_config, 'save'):
+                if result_name in self.model.results and hasattr(result_config, 'save'):
                     save_function = instantiate(result_config.save)
-                    save_function(self.model.test_results[result_name])
+                    save_function(self.model.results[result_name])
 
     def predict(self, loader_config: DictConfig) -> np.ndarray:
         """ Predicts the output of the model on a given dataset.
@@ -200,13 +214,13 @@ class Tracker:
                 os.makedirs(save_dir, exist_ok=True)
 
         # Data loader and trainer setup
-        self.setup(loader_config, stage='predict')
+        self.setup(loader_config, stage='pred')
 
         # Load model from checkpoint
         if self.model is None:
             logger.info("Loading model...")
             self.model = instantiate(self.config.model)
-            checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=True)
+            checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=False)
             self.model.load_state_dict(checkpoint['state_dict'], strict=False)
             if hasattr(self.config.data, 'dtype'):
                 self.model = self.model.to(None, dtype=getattr(torch, self.config.data.dtype))

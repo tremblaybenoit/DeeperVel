@@ -3,212 +3,6 @@ import numpy as np
 import torch
 
 
-class NormalizeProfiles:
-    """ Normalize profiles using min-max scaling. """
-
-    def __init__(self, profmin: np.ndarray, profmax: np.ndarray, inverse_transform: bool=False, dtype: str='float32'):
-        """ Initialize NormalizeProfiles.
-
-        Parameters
-        ----------
-        profmin : np.ndarray. Minimum profile values.
-        profmax : np.ndarray. Maximum profile values.
-        inverse_transform : bool. If True, applies inverse normalization.
-        dtype : str. Data type for the profiles (default is 'float64').
-
-        Returns
-        -------
-        None.
-        """
-        super().__init__()
-
-        # Load min and max profiles
-        self.profmin = profmin.astype(dtype) if len(profmin.shape) >= 2 \
-            else profmin.reshape([9, 1]).astype(dtype)
-
-        self.profmax = profmax.astype(dtype)  if len(profmax.shape) >= 2 \
-            else profmax.reshape([9, 1]).astype(dtype)
-        # Inverse transform flag
-        self.inverse_transform = inverse_transform
-
-    def forward(self, x: Union[torch.Tensor, np.ndarray]) -> Union[torch.Tensor, np.ndarray]:
-        """ Forward pass for NormalizeProfiles.
-
-        Parameters
-        ----------
-        x : torch.Tensor. Input tensor (profiles).
-
-        Returns
-        -------
-        torch.Tensor. Normalized tensor.
-        """
-
-        # Apply transformation
-        return affine(x, self.profmax, self.profmin, inverse_transform=~self.inverse_transform)
-
-    __call__ = forward  # Make the instance callable for normalization
-
-    def to(self, device):
-        """ Move the normalization parameters to the specified device.
-            This should only be called if the instance is used within a PyTorch model.
-
-        Parameters
-        ----------
-        device : torch.device. The device to move the parameters to.
-
-        Returns
-        -------
-        NormalizeProfiles. The instance with parameters moved to the specified device.
-        """
-
-        # If called, convert profmin and profmax to torch tensors and move to device
-        if not isinstance(self.profmin, torch.Tensor):
-            self.profmin = torch.tensor(self.profmin)
-        if not isinstance(self.profmax, torch.Tensor):
-            self.profmax = torch.tensor(self.profmax)
-        self.profmin = self.profmin.to(device)
-        self.profmax = self.profmax.to(device)
-        return self
-
-
-class NormalizeSurface:
-    """ Normalize surface using min-max scaling. """
-    def __init__(self, surfmin, surfmax, inverse_transform=False, dtype='float32'):
-        """ Initialize NormalizeSurface.
-
-        Parameters
-        ----------
-        surfmin : np.ndarray. Minimum surface values.
-        surfmax : np.ndarray. Maximum surface values.
-        inverse_transform : bool. If True, applies inverse normalization.
-        dtype : str. Data type for the surfaces (default is 'float64').
-
-        Returns
-        -------
-        None.
-        """
-
-        super().__init__()
-
-        # Assignment
-        surfmin[[0, 1, 2, 3, 6, 11, 12]] = 0
-        surfmax[[0, 1, 5, 13, 14, 15]] = 1
-        # Load min and max surfaces
-        self.surfmin = surfmin.astype(dtype)
-        self.surfmax = surfmax.astype(dtype)
-        # Inverse transform flag
-        self.inverse_transform = inverse_transform
-
-
-    def forward(self, x):
-        """ Forward pass for NormalizeSurface.
-
-        Parameters
-        ----------
-        x : torch.Tensor. Input tensor (surface).
-
-        Returns
-        -------
-        torch.Tensor. Normalized tensor.
-        """
-
-        # Apply transformation
-        return affine(x, self.surfmax-self.surfmin, self.surfmin, inverse_transform=~self.inverse_transform)
-
-    __call__ = forward  # Make the instance callable for normalization
-
-    def to(self, device):
-        """ Move the normalization parameters to the specified device.
-            This should only be called if the instance is used within a PyTorch model.
-
-        Parameters
-        ----------
-        device : torch.device. The device to move the parameters to.
-
-        Returns
-        -------
-        NormalizeSurface. The instance with parameters moved to the specified device.
-        """
-
-        # If called, convert surfmin and surfmax to torch tensors and move to device
-        if not isinstance(self.surfmin, torch.Tensor):
-            self.surfmin = torch.tensor(self.surfmin)
-        if not isinstance(self.surfmax, torch.Tensor):
-            self.surfmax = torch.tensor(self.surfmax)
-        self.surfmin = self.surfmin.to(device)
-        self.surfmax = self.surfmax.to(device)
-        return self
-
-
-class NormalizeMeta:
-    """ Normalize meta variables using sine and cosine transformations. """
-
-    def __init__(self, settings: dict):
-        """ Initialize NormalizeMeta.
-
-        Parameters
-        ----------
-        settings : dict. Dictionary containing meta normalization settings.
-        - meta_sin_vars : list. Indices of variables to apply sine transformation.
-        - meta_cos_vars : list. Indices of variables to apply cosine transformation.
-        - meta_scale_vars : list. Indices of variables to apply scaling.
-        - meta_scale_factor : float. Scaling factor for the variables.
-        - meta_scale_offset : float. Scaling offset for the variables.
-
-        Returns
-        -------
-        None.
-        """
-
-        super().__init__()
-
-        # Load settings
-        self.meta_sin_vars = settings['meta_sin_vars']
-        self.meta_cos_vars = settings['meta_cos_vars']
-        self.meta_scale_vars = settings['meta_scale_vars']
-        self.meta_scale_factor = settings['meta_scale_factor']
-        self.meta_scale_offset = settings['meta_scale_offset']
-
-    def forward(self, x):
-        """ Forward pass for NormalizeMeta.
-
-        Parameters
-        ----------
-        x : torch.Tensor. Input tensor (meta variables).
-
-        Returns
-        -------
-        torch.Tensor. Normalized tensor.
-        """
-
-        # Normalize meta variables
-        meta = torch.remainder(x, 360) if isinstance(x, torch.Tensor) else np.remainder(x, 360)
-        meta_list = []
-
-        # Apply scaling
-        if self.meta_scale_vars:
-            meta_scale = x[:, self.meta_scale_vars]
-            meta_scale = affine(meta_scale, self.meta_scale_factor, self.meta_scale_offset)
-            meta_list.append(meta_scale)
-        # Convert to radians
-        meta_rad = np.pi * meta / 180
-        # Apply sine and cosine transformations
-        if len(self.meta_sin_vars) > 0:
-            meta_sin = torch.sin(meta_rad[:, self.meta_sin_vars]) if isinstance(meta_rad, torch.Tensor) \
-                else np.sin(meta_rad[:, self.meta_sin_vars])
-            meta_list.append(meta_sin)
-        if len(self.meta_cos_vars) > 0:
-            meta_cos = torch.cos(meta_rad[:, self.meta_cos_vars]) if isinstance(meta_rad, torch.Tensor) \
-                else np.cos(meta_rad[:, self.meta_cos_vars])
-            meta_list.append(meta_cos)
-
-        # Concatenate all normalized meta variables
-        return torch.cat(meta_list, dim=1) if isinstance(meta_list[0], torch.Tensor) \
-            else np.concatenate(meta_list, axis=1)
-
-    __call__ = forward  # Make the instance callable for normalization
-
-
 def broadcast(var1: Union[np.ndarray, torch.Tensor], var2: Union[np.ndarray, torch.Tensor, float, int]) \
         -> Union[np.ndarray, torch.Tensor]:
     """ Broadcast var2 to the same dimensions as var1.
@@ -257,8 +51,8 @@ def broadcast(var1: Union[np.ndarray, torch.Tensor], var2: Union[np.ndarray, tor
             var2 = var2.to(dtype=dtype)
         # Broadcast dimensions
         if var2.ndim < var1.ndim:
-            for _ in range(var1.ndim - var2.ndim):
-                var2 = var2.unsqueeze(0)
+            view_shape = [1] * (var1.ndim - var2.ndim) + list(var2.shape)
+            var2 = var2.view(view_shape)
         return var2.expand(var1.shape)
     else:
         raise TypeError("Input variables must be numpy arrays or torch tensors.")
@@ -352,7 +146,7 @@ def affine(data: Union[np.ndarray, torch.Tensor], factor: Union[np.ndarray, torc
         return translation(data, value, inverse_transform=inverse_transform)
 
 
-def stdev(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_transform: bool = False) \
+def stdev(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_transform: bool = False, axis: int=None) \
         -> Union[np.ndarray, torch.Tensor]:
     """ Divide/multiply dataset by stddev.
 
@@ -361,16 +155,22 @@ def stdev(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_transform:
         data: arr or tensor. Contains data to transform.
         stats: arr or tensor. Statistics of the data.
         inverse_transform: bool. False for standardization, True for unstandardization.
+        axis: int or None. Axis along which to standardize. If None, standardize across all dimensions.
 
         Returns
         -------
         data_transform: arr or tensor. Standardized/unstandardized dataset.
     """
+    if axis is None:
+        return multiplication(data, stats['stdev'], inverse_transform=not inverse_transform)
+    else:
+        acc_mean = stats['mean'].mean(axis=axis, keepdims=True)
+        acc_var = (stats['stdev'] ** 2 + (stats['mean'] - acc_mean) ** 2).mean(axis=axis, keepdims=True)
+        acc_stdev = np.sqrt(acc_var)
+        return multiplication(data, acc_stdev, inverse_transform=not inverse_transform)
 
-    return multiplication(data, stats['stdev'], inverse_transform=not inverse_transform)
 
-
-def mean_stdev(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_transform: bool = False) \
+def mean_stdev(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_transform: bool = False, axis: int=None) \
         -> Union[np.ndarray, torch.Tensor]:
     """ Standardize dataset.
 
@@ -379,13 +179,20 @@ def mean_stdev(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_trans
         data: arr or tensor. Contains data to transform.
         stats: arr or tensor. Statistics of the data.
         inverse_transform: bool. False for standardization, True for unstandardization.
+        axis: int or None. Axis along which to standardize. If None, standardize across all dimensions.
 
         Returns
         -------
         data_transform: arr or tensor. Standardized/unstandardized dataset.
     """
-
-    return affine(data, stats['stdev'], stats['mean'], inverse_transform=not inverse_transform)
+    if axis is None:
+        return affine(data, stats['stdev'], stats['mean'], inverse_transform=not inverse_transform)
+    else:
+        # acc_stats = [{'mean': stats['mean'], 'stdev': stats['stdev'], 'n_samples': 1}]
+        acc_mean = stats['mean'].mean(axis=axis, keepdims=True)
+        acc_var = (stats['stdev']**2 + (stats['mean'] - acc_mean)**2).mean(axis=axis, keepdims=True)
+        acc_stdev = np.sqrt(acc_var)
+        return affine(data, acc_stdev, acc_mean, inverse_transform=not inverse_transform)
 
 
 def min_max(data: Union[np.ndarray, torch.Tensor], stats: Dict, inverse_transform: bool = False, axis=None) \
@@ -528,3 +335,171 @@ def clip(data: Union[np.ndarray, torch.Tensor], stats: Dict) \
         return torch.clamp(data, min=min_value, max=max_value)
     else:
         raise TypeError("Input data must be a numpy array or a torch tensor.")
+
+
+def rot90(data: Union[np.ndarray, torch.Tensor], n: int = 1, axes: Union[int, tuple[int, int]] = 1,
+          inverse_transform: bool = False) -> Union[np.ndarray, torch.Tensor]:
+    """ Rotate dataset by multiples of 90 degrees.
+
+        Parameters
+        ----------
+        data: arr or tensor. Contains data to transform.
+        n: int. Number of 90 degree rotations.
+        axes: int or tuple. Axes to rotate.
+            - int: Rotate along the first two axes.
+            - tuple: Rotate along the specified axes.
+        inverse_transform: bool. False for rotation, True for unrotation.
+
+        Returns
+        -------
+        data_transform: arr or tensor. Rotated dataset.
+    """
+
+    # For Cartesian: positive n_rot90 means CW
+    k = -n if not inverse_transform else n
+
+    # Apply rotation
+    if isinstance(data, np.ndarray):
+        # Numpy
+        return np.rot90(data, k=k, axes=axes)
+    elif isinstance(data, torch.Tensor):
+        # Torch
+        return torch.rot90(data, k=k, dims=axes)
+    else:
+        raise TypeError("Unsupported data type. Expected numpy array or torch tensor.")
+
+
+def flip(data: Union[np.ndarray, torch.Tensor], n: Union[int, tuple[int]] = None,
+         inverse_transform: bool = False) -> Union[np.ndarray, torch.Tensor]:
+    """ Flip dataset along an axis.
+
+        Parameters
+        ----------
+        data: arr or tensor. Contains data to transform.
+        n: int. Axis to flip along.
+        inverse_transform: bool. False for flipping, True for unflipping.
+
+        Returns
+        -------
+        data_transform: arr or tensor. Flipped dataset.
+    """
+
+    # Inverse transform is a rotation in the opposite direction
+    if inverse_transform:
+        n = -n
+
+    # No flip
+    if n is None:
+        return data
+    # Apply flip
+    elif isinstance(data, np.ndarray):
+        # Numpy
+        return np.flip(data, n)
+    elif isinstance(data, torch.Tensor):
+        # Torch
+        dims = [n] if isinstance(n, int) else n
+        return torch.flip(data, dims=dims)
+    else:
+        raise TypeError("Unsupported data type. Expected numpy array or torch tensor.")
+
+
+def augment_scalar(data: Union[np.ndarray, torch.Tensor], n_rot90: int = 0, axes_rot90: Union[int, tuple[int, int]] = 1,
+                   n_flip: int = None, inverse_transform: bool = False) -> Union[np.ndarray, torch.Tensor]:
+    """ Apply random rotation and flip to the dataset.
+
+        Parameters
+        ----------
+        data: arr or tensor. Contains data to transform.
+        n_rot90: int. Number of 90 degree rotations.
+        axes_rot90: int or tuple. Axes to rotate.
+        n_flip: int. Axis to flip along.
+        inverse_transform: bool. False for augmentation, True for unaugmentation.
+
+        Returns
+        -------
+        data_transform: arr or tensor. Transformed dataset.
+    """
+
+    # Apply flip
+    data_transform = flip(data, n=n_flip, inverse_transform=inverse_transform)
+    # Apply rotation
+    data_transform = rot90(data_transform, n=n_rot90, axes=axes_rot90, inverse_transform=inverse_transform)
+
+    return data_transform
+
+
+def augment_vector(data_x: Union[np.ndarray, torch.Tensor], data_y: Union[np.ndarray, torch.Tensor],
+                   n_rot90: int = 0, n_flip: int = None, axes_rot90: Union[int, tuple[int, int]] = 1,
+                   inverse_transform: bool = False) \
+        -> tuple[Union[np.ndarray, torch.Tensor], Union[np.ndarray, torch.Tensor]]:
+    """ Perform all possible augmentations of a vector, accounting for directionality
+        (positive and negative signs based on the direction).
+
+        Parameters
+        ----------
+        data_x: arr or tensor. Contains x-component of the vector.
+        data_y: arr or tensor. Contains y-component of the vector.
+        n_rot90: int. Number of 90 degree rotations.
+        axes_rot90: int or tuple. Axes to rotate.
+        n_flip: int. Axis to flip along.
+        inverse_transform: bool. False for augmentation, True for unaugmentation.
+
+        Returns
+        -------
+        data_transform: arr or tensor. Transformed dataset.
+    """
+
+    # Apply transformations for both x and y components.
+    # Account for the changes in sign, and the fact that the x and y components are swapped
+    # when rotating by 90 degrees.
+    if n_flip is not None:
+        data_x = flip(data_x, n=n_flip, inverse_transform=inverse_transform)
+        data_y = flip(data_y, n=n_flip, inverse_transform=inverse_transform)
+        if n_flip == 0:
+            data_y = -data_y
+        elif n_flip == 1:
+            data_x = -data_x
+
+    # Apply rotation and account for the swapping of x and y components
+    if n_rot90 == 0:
+        return data_x, data_y
+    elif n_rot90 == 1:
+        return -rot90(data_y, n=n_rot90, axes=axes_rot90), rot90(data_x, n=n_rot90, axes=axes_rot90)
+    elif n_rot90 == 2:
+        return -rot90(data_x, n=n_rot90, axes=axes_rot90), -rot90(data_y, n=n_rot90, axes=axes_rot90)
+    elif n_rot90 == 3:
+        return rot90(data_y, n=n_rot90, axes=axes_rot90), -rot90(data_x, n=n_rot90, axes=axes_rot90)
+    else:
+        raise ValueError(f"Unsupported number of rotations: {n_rot90}. Must be in [0, 3].")
+
+
+def geometric_augmentation(data: list[np.ndarray], vars: list[str], n_rot90: int = 0,
+                           axes_rot90: Union[int, tuple[int, int]] = 1, n_flip: int = None) \
+        -> list[np.ndarray]:
+    """ Apply geometric augmentation to the dataset.
+
+        Parameters
+        ----------
+        data: arr or tensor. Contains data to transform.
+        vars: list of str. Variables to apply augmentation to.
+        n_rot90: int. Number of 90 degree rotations.
+        axes_rot90: int or tuple. Axes to rotate.
+        n_flip: int. Axis to flip along.
+
+        Returns
+        -------
+        data_transform: arr or tensor. Transformed dataset.
+    """
+
+    # Vector augmentation
+    for vpair in [("vx", "vy"), ("Bx", "By")]:
+        if all(v in vars for v in vpair):
+            idx_x, idx_y = vars.index(vpair[0]), vars.index(vpair[1])
+            data[idx_x], data[idx_y] = augment_vector(data[idx_x], data[idx_y],
+                                                      n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+    # Scalar augmentation
+    for scalar in ["I500", "vz", "Bz"]:
+        if scalar in vars:
+            idx = vars.index(scalar)
+            data[idx] = augment_scalar(data[idx], n_flip=n_flip, n_rot90=n_rot90, axes_rot90=axes_rot90)
+    return data

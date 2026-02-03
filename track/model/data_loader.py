@@ -6,7 +6,9 @@ from torch.utils.data import DataLoader, Dataset
 from typing import Tuple, Union
 from track.utilities.instantiators import instantiate
 import logging
-from track.data.transformations import identity, geometric_augmentation
+from track.data.transformations import identity, geometric_augmentation, augment_vector, augment_scalar
+import torch
+
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -532,3 +534,353 @@ class LazyDatasets(Dataset):
         # If no targets, each sample is just input
         else:
             return np.concatenate(samples, axis=0)
+
+
+
+class TorchDataset(Dataset):
+    """ Dataset using torch shared memory tensors. """
+    def __init__(self, input: DictConfig, target: DictConfig = None, results: DictConfig = None) -> None:
+        """ Initialize the dataset.
+
+            Parameters
+            ----------
+            input : DictConfig. Configuration for input variables.
+            target : DictConfig. Configuration for target variables (optional).
+            results : DictConfig. Configuration for results (optional).
+
+            Returns
+            -------
+            None.
+        """
+
+        def _load(var_dict: DictConfig) -> torch.Tensor:
+            """ Load and normalize variables from configuration.
+
+                Parameters
+                ----------
+                var_dict : DictConfig. Configuration for variable.
+
+                Returns
+                -------
+                torch.Tensor. Loaded and normalized tensor in shared memory.
+            """
+            arr = load_var(var_dict)
+            # if not arr.flags.c_contiguous:
+            arr = np.ascontiguousarray(arr)
+            t = torch.from_numpy(arr)
+            t.share_memory_()
+            return t
+
+        # Input loading
+        self.input, self.input_keys = {}, []
+        # We store the keys in a list once so __getitem__ doesn't have to look them up
+        input_keys = list(input.keys())
+        for key in input_keys:
+            data = _load(input[key])
+            self.input[key] = data
+            self.input_keys.append(key)
+
+        # 2. Automate Target Block Loading
+        self.target, self.target_keys = {}, []
+        self.has_targets = target is not None
+        if self.has_targets:
+            target_keys = list(target.keys())
+            for key in target_keys:
+                data = _load(target[key])
+                self.target[key] = data
+                self.target_keys.append(key)
+
+        # Store results config
+        self.results = results
+
+    def __len__(self):
+        """ Get the length of the dataset."""
+        return int(self.input[self.input_keys[0]].shape[0])
+
+    def __getitem__(self, idx: int) -> dict:
+        """ Get item from dataset.
+
+            Parameters
+            ----------
+            idx : int. Index of the item to retrieve.
+
+            Returns
+            -------
+            Dataset object.
+        """
+
+        # Use dictionary comprehension over pre-cached keys
+        out = {'input': {k: self.input[k][idx] for k in self.input_keys}}
+
+        # Add target dictionary only if it exists
+        if self.has_targets:
+            out['target'] = {k: self.target[k][idx] for k in self.target_keys}
+
+        return out
+
+
+class AugmentedTorchDataset(Dataset):
+    """ Dataset using torch shared memory tensors. """
+    def __init__(self, input: DictConfig, target: DictConfig = None, results: DictConfig = None, augment: bool=False,
+                 vector_keys: list = None) -> None:
+        """ Initialize the dataset.
+
+            Parameters
+            ----------
+            input : DictConfig. Configuration for input variables.
+            target : DictConfig. Configuration for target variables (optional).
+            results : DictConfig. Configuration for results (optional).
+            augment: bool, optional. Apply data augmentation, by default False.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Vector keys
+        vector_keys = vector_keys if vector_keys is not None else [("vx", "vy"), ("Bx", "By"), ("Ex", "Ey")]
+
+        # Input data
+        self.input_vector, self.input_vector_keys, self.input_vector_norm, self.input_scalar, self.input_scalar_norm \
+            = self._organize_data(input, vector_keys)
+        # Target data
+        self.target_vector, self.target_vector_keys, self.target_vector_norm, self.target_scalar, self.target_scalar_norm \
+            = self._organize_data(target, vector_keys)
+        self.has_target = len(self.target_vector) > 0 or len(self.target_scalar) > 0
+
+        # Dataset length
+        self._len = int(self.input_scalar[0].shape[0]) if len(self.input_scalar) > 0 \
+            else int(self.input_vector[0][0].shape[0])
+        # Store results config
+        self.results = results
+        # Data augmentation
+        self.augment = augment
+
+    def __len__(self):
+        """ Get the length of the dataset."""
+        return self._len
+
+    @staticmethod
+    def _organize_data(config: DictConfig, vector_keys: list) -> Tuple[list, list, list, list, list]:
+        """ Organize data into vector and scalar components.
+
+            Parameters
+            ----------
+            config: DictConfig. Configuration for variables.
+
+            Returns
+            -------
+            v_data: list. List of vector data tuples.
+            v_norm: list. List of vector normalization functions.
+            s_data: list. List of scalar data.
+            s_norm: list. List of scalar normalization functions.
+        """
+
+        def _load(var_dict: DictConfig) -> torch.Tensor:
+            """ Load and normalize variables from configuration.
+
+                Parameters
+                ----------
+                var_dict : DictConfig. Configuration for variable.
+
+                Returns
+                -------
+                torch.Tensor. Loaded and normalized tensor in shared memory.
+            """
+            arr = load_var(var_dict)
+            # if not arr.flags.c_contiguous:
+            arr = np.ascontiguousarray(arr)
+            t = torch.from_numpy(arr)
+            t.share_memory_()
+            return t
+
+        # Return empty lists if config is None
+        if config is None:
+            return [], [], [], [], []
+
+        # Organize vector data
+        v_data, v_keys, v_norm = [], [], []
+        for key1, key2 in vector_keys:
+            if key1 in config and key2 in config:
+                v_keys.append((key1, key2))
+                v_data.append((_load(config[key1]), _load(config[key2])))
+                v_norm.append((instantiate(config[key1].normalization), instantiate(config[key2].normalization)))
+            elif key1 in config or key2 in config:
+                raise ValueError(f"Both components of vector {(key1, key2)} must be present.")
+        # Organize scalar data
+        s_keys = [k for k in config.keys() if all(k not in pair for pair in v_keys)]
+        s_data = [_load(config[k]) for k in s_keys]
+        s_norm = [instantiate(config[k].normalization) for k in s_keys]
+
+        # Return organized data
+        return v_data, v_keys, v_norm, s_data, s_norm
+
+    @staticmethod
+    def _process_sample(item: int, v_data, v_norm, s_data, s_norm, augment_parameters: dict = None) -> torch.Tensor:
+        """ Process a single sample with optional augmentation.
+
+            Parameters
+            ----------
+            item: int. Index of the item to process.
+            v_data: list. List of vector data tuples.
+            v_norm: list. List of vector normalization functions.
+            s_data: list. List of scalar data.
+            s_norm: list. List of scalar normalization functions.
+            augment_parameters: dict, optional. Parameters for data augmentation, by default None.
+
+            Returns
+            -------
+            torch.Tensor. Processed sample tensor.
+        """
+
+        # Initialize an empty list to store the data
+        data = []
+        # Process vector data
+        for (vx, vy), (fx, fy) in zip(v_data, v_norm):
+            x_comp = vx[item]
+            y_comp = vy[item]
+            if augment_parameters is not None:
+                x_comp, y_comp = augment_vector(x_comp, y_comp, **augment_parameters)
+            data.append(fx(x_comp))
+            data.append(fy(y_comp))
+        # Process scalar data
+        for scalar, fscalar in zip(s_data, s_norm):
+            scalar_data = scalar[item]
+            if augment_parameters is not None:
+                scalar_data = augment_scalar(scalar_data, **augment_parameters)
+            data.append(fscalar(scalar_data))
+        # Stack tensors and return
+        return torch.stack(data, dim=0)
+
+    def __getitem__(self, item: int) -> Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]
+        """ Get item from dataset.
+
+            Parameters
+            ----------
+            item : int. Index of the item to retrieve.
+
+            Returns
+            -------
+            Dataset object.
+        """
+
+        # Apply data augmentation if enabled
+        if self.augment:
+            # Randomly select a combination of transformations
+            idx = np.random.randint(0, 8)
+            combinations = [
+                (0, None), (1, None), (2, None), (3, None),
+                (0, 1), (0, 0), (1, 1), (1, 0),
+            ]
+            n_rot90, flip = combinations[idx]
+            augment_parameters = {'n_rot90': n_rot90, 'flip': flip, 'axes_rot90': (0, 1)}
+        else:
+            augment_parameters = None
+
+        # Load input data, starting with vectors then scalars
+        input_data =  self._process_sample(item, self.input_vector, self.input_vector_norm,
+                                           self.input_scalar, self.input_scalar_norm, augment_parameters)
+
+        # Add target data if it exists
+        if self.has_target:
+            target_data = self._process_sample(item, self.target_vector, self.target_vector_norm,
+                                               self.target_scalar, self.target_scalar_norm, augment_parameters)
+            return input_data, target_data
+
+        return input_data
+
+
+class AugmentedLazyTorchDataset(AugmentedTorchDataset):
+    """ Dataset using torch shared memory tensors and lazy loading. """
+    def __init__(self, input: DictConfig, target: DictConfig = None, results: DictConfig = None, augment: bool=False,
+                 vector_keys: list = None) -> None:
+        """ Initialize the dataset.
+
+            Parameters
+            ----------
+            input : DictConfig. Configuration for input variables.
+            target : DictConfig. Configuration for target variables (optional).
+            results : DictConfig. Configuration for results (optional).
+            augment: bool, optional. Apply data augmentation, by default False.
+
+            Returns
+            -------
+            None.
+        """
+
+        # Class inheritance
+        super().__init__(input, target=target, results=results, augment=augment, vector_keys=vector_keys)
+
+    @staticmethod
+    def _organize_data(config: DictConfig, vector_keys: list) -> tuple[list, list, list, list, list]:
+        """ Organize data into vector and scalar components.
+
+            Parameters
+            ----------
+            config: DictConfig. Configuration for variables.
+
+            Returns
+            -------
+            v_data: list. List of vector data tuples.
+            v_norm: list. List of vector normalization functions.
+            s_data: list. List of scalar data.
+            s_norm: list. List of scalar normalization functions.
+        """
+
+        # Return empty lists if config is None
+        if config is None:
+            return [], [], [], [], []
+
+        # Organize vector data
+        v_data, v_keys, v_norm = [], [], []
+        for key1, key2 in vector_keys:
+            if key1 in config and key2 in config:
+                v_keys.append((key1, key2))
+                v_data.append((instantiate(config[key1].load), instantiate(config[key2].load)))
+                v_norm.append((instantiate(config[key1].normalization), instantiate(config[key2].normalization)))
+            elif key1 in config or key2 in config:
+                raise ValueError(f"Both components of vector {(key1, key2)} must be present.")
+        # Organize scalar data
+        s_keys = [k for k in config.keys() if all(k not in pair for pair in v_keys)]
+        s_data = [instantiate(config[k].load) for k in s_keys]
+        s_norm = [instantiate(config[k].normalization) for k in s_keys]
+
+        # Return organized data
+        return v_data, v_keys, v_norm, s_data, s_norm
+
+    @staticmethod
+    def _process_sample(item: int, v_data, v_norm, s_data, s_norm, augment_parameters: dict = None) -> torch.Tensor:
+        """ Process a single sample with optional augmentation.
+
+            Parameters
+            ----------
+            item: int. Index of the item to process.
+            v_data: list. List of vector data tuples.
+            v_norm: list. List of vector normalization functions.
+            s_data: list. List of scalar data.
+            s_norm: list. List of scalar normalization functions.
+            augment_parameters: dict, optional. Parameters for data augmentation, by default None.
+
+            Returns
+            -------
+            torch.Tensor. Processed sample tensor.
+        """
+
+        # Initialize an empty list to store the data
+        data = []
+        # Process vector data
+        for (vx, vy), (fx, fy) in zip(v_data, v_norm):
+            x_comp = vx(item)
+            y_comp = vy(item)
+            if augment_parameters is not None:
+                x_comp, y_comp = augment_vector(x_comp, y_comp, **augment_parameters)
+            data.append(fx(x_comp))
+            data.append(fy(y_comp))
+        # Process scalar data
+        for scalar, fscalar in zip(s_data, s_norm):
+            scalar_data = scalar(item)
+            if augment_parameters is not None:
+                scalar_data = augment_scalar(scalar_data, **augment_parameters)
+            data.append(fscalar(scalar_data))
+        # Stack tensors and return
+        return torch.stack(data, dim=0)
